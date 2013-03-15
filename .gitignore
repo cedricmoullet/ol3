@@ -20,3 +20,5 @@
 /examples/example-list.js
 /examples/example-list.xml
 /test/requireall.js
+.idea
+ol3.iml
