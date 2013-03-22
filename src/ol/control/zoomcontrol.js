@@ -44,9 +44,32 @@ ol.control.Zoom = function(opt_options) {
     goog.events.EventType.CLICK
   ], this.handleOut_, false, this);
 
+  /**
+   * @type {ol.Extent}
+   * @private
+   */
+  this.extent_ = goog.isDef(options.extent) ? options.extent : undefined;
+
+  /**
+   * @type {boolean}
+   * @private
+   */
+  this.isExtent_ = goog.isDef(options.isExtent) ? options.isExtent : false;
+
+  if (this.isExtent_) {
+      var extentElement = goog.dom.createDom(goog.dom.TagName.A, {
+          'href': '#zoomExtent',
+          'class': 'ol-zoom-extent'
+      });
+      goog.events.listen(extentElement, [
+          goog.events.EventType.TOUCHEND,
+          goog.events.EventType.CLICK
+      ], this.handleExtent_, false, this);
+  }
+
   var cssClasses = 'ol-zoom ' + ol.CSS_CLASS_UNSELECTABLE;
   var element = goog.dom.createDom(goog.dom.TagName.DIV, cssClasses, inElement,
-      outElement);
+      outElement, this.isExtent_ ? extentElement : undefined);
 
   goog.base(this, {
     element: element,
@@ -90,5 +113,24 @@ ol.control.Zoom.prototype.handleOut_ = function(browserEvent) {
   map.requestRenderFrame();
   // FIXME works for View2D only
   map.getView().zoomByDelta(map, -this.delta_, undefined,
+      ol.control.ZOOM_DURATION);
+};
+
+/**
+ * @param {goog.events.BrowserEvent} browserEvent The browser event to handle.
+ * @private
+ */
+ol.control.Zoom.prototype.handleExtent_ = function(browserEvent) {
+  // prevent #zoomFull anchor from getting appended to the url
+  browserEvent.preventDefault();
+  var map = this.getMap();
+  map.requestRenderFrame();
+  // FIXME works for View2D only
+
+  var view2d = map.getView().getView2D();
+  var maxResolution = view2d.getResolutionForExtent(this.extent_ ? this.extent_ :
+      map.getView().getProjection().getExtent(),
+      map.getSize());
+  view2d.zoom(map,maxResolution,undefined,
       ol.control.ZOOM_DURATION);
 };

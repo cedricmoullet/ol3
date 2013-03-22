@@ -96,6 +96,13 @@
   content: "\2212";
 }
 
+.ol-zoom-extent {
+  border-radius: 0 0 2px 2px;
+}
+.ol-zoom-extent:before {
+  content: "E";
+}
+
 .ol-zoomslider {
   position: absolute;
   top: 67px;
