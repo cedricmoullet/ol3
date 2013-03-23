@@ -21,7 +21,7 @@ goog.require('ol.source.OpenStreetMap');
 /**
  * @constructor
  * @extends {ol.control.Control}
- * @param {ol.control.ZoomOptions=} opt_options Options.
+ * @param {ol.control.ZoomExtentOptions=} opt_options Options.
  */
 ol.control.ZoomExtent = function(opt_options) {
 
