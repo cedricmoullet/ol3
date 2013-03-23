@@ -51,7 +51,6 @@
 @exportObjectLiteralProperty ol.control.DefaultsOptions.attributionOptions ol.control.AttributionOptions|undefined
 @exportObjectLiteralProperty ol.control.DefaultsOptions.zoom boolean|undefined
 @exportObjectLiteralProperty ol.control.DefaultsOptions.zoomOptions ol.control.ZoomOptions|undefined
-@exportObjectLiteralProperty ol.control.DefaultsOptions.ZoomExtentOptions ol.control.ZoomExtentOptions|undefined
 
 @exportObjectLiteral ol.control.ScaleLineOptions
 @exportObjectLiteralProperty ol.control.ScaleLineOptions.map ol.Map|undefined
@@ -70,11 +69,6 @@
 @exportObjectLiteralProperty ol.control.ZoomOptions.delta number|undefined
 @exportObjectLiteralProperty ol.control.ZoomOptions.map ol.Map|undefined
 @exportObjectLiteralProperty ol.control.ZoomOptions.target Element|undefined
-
-@exportObjectLiteral ol.control.ZoomExtentOptions
-@exportObjectLiteralProperty ol.control.ZoomExtentOptions.extent ol.Extent|undefined
-@exportObjectLiteralProperty ol.control.ZoomExtentOptions.map ol.Map|undefined
-@exportObjectLiteralProperty ol.control.ZoomExtentOptions.target Element|undefined
 
 @exportObjectLiteral ol.control.ZoomSliderOptions
 @exportObjectLiteralProperty ol.control.ZoomSliderOptions.map ol.Map|undefined
