@@ -3,6 +3,8 @@
 goog.provide('ol.renderer.webgl.Layer');
 
 goog.require('goog.vec.Mat4');
+goog.require('goog.webgl');
+goog.require('ol.FrameState');
 goog.require('ol.layer.Layer');
 goog.require('ol.renderer.Layer');
 goog.require('ol.vec.Mat4');
@@ -20,28 +22,34 @@ ol.renderer.webgl.Layer = function(mapRenderer, layer) {
   goog.base(this, mapRenderer, layer);
 
   /**
-   * @private
-   * @type {!goog.vec.Mat4.Float32}
+   * @protected
+   * @type {WebGLTexture}
    */
-  this.brightnessMatrix_ = goog.vec.Mat4.createFloat32();
+  this.texture = null;
 
   /**
-   * @private
-   * @type {!goog.vec.Mat4.Float32}
+   * @protected
+   * @type {WebGLFramebuffer}
    */
-  this.contrastMatrix_ = goog.vec.Mat4.createFloat32();
+  this.framebuffer = null;
 
   /**
-   * @private
-   * @type {!goog.vec.Mat4.Float32}
+   * @protected
+   * @type {number|undefined}
    */
-  this.hueMatrix_ = goog.vec.Mat4.createFloat32();
+  this.framebufferDimension = undefined;
 
   /**
-   * @private
-   * @type {!goog.vec.Mat4.Float32}
+   * @protected
+   * @type {!goog.vec.Mat4.Number}
    */
-  this.saturationMatrix_ = goog.vec.Mat4.createFloat32();
+  this.texCoordMatrix = goog.vec.Mat4.createNumber();
+
+  /**
+   * @protected
+   * @type {!goog.vec.Mat4.Number}
+   */
+  this.projectionMatrix = goog.vec.Mat4.createNumberIdentity();
 
   /**
    * @private
@@ -55,13 +63,85 @@ ol.renderer.webgl.Layer = function(mapRenderer, layer) {
    */
   this.colorMatrixDirty_ = true;
 
-  this.handleLayerBrightnessChange();
-  this.handleLayerContrastChange();
-  this.handleLayerHueChange();
-  this.handleLayerSaturationChange();
+  /**
+   * @private
+   * @type {!goog.vec.Mat4.Float32}
+   */
+  this.brightnessMatrix_ = goog.vec.Mat4.createFloat32();
+  this.updateBrightnessMatrix_();
+
+  /**
+   * @private
+   * @type {!goog.vec.Mat4.Float32}
+   */
+  this.contrastMatrix_ = goog.vec.Mat4.createFloat32();
+  this.updateContrastMatrix_();
+
+  /**
+   * @private
+   * @type {!goog.vec.Mat4.Float32}
+   */
+  this.hueMatrix_ = goog.vec.Mat4.createFloat32();
+  this.updateHueMatrix_();
+
+  /**
+   * @private
+   * @type {!goog.vec.Mat4.Float32}
+   */
+  this.saturationMatrix_ = goog.vec.Mat4.createFloat32();
+  this.updateSaturationMatrix_();
 
 };
 goog.inherits(ol.renderer.webgl.Layer, ol.renderer.Layer);
+
+
+/**
+ * @param {ol.FrameState} frameState Frame state.
+ * @param {number} framebufferDimension Framebuffer dimension.
+ * @protected
+ */
+ol.renderer.webgl.Layer.prototype.bindFramebuffer =
+    function(frameState, framebufferDimension) {
+
+  var mapRenderer = this.getWebGLMapRenderer();
+  var gl = mapRenderer.getGL();
+
+  if (!goog.isDef(this.framebufferDimension) ||
+      this.framebufferDimension != framebufferDimension) {
+
+    var map = this.getMap();
+    frameState.postRenderFunctions.push(
+        goog.partial(function(gl, framebuffer, texture) {
+          if (!gl.isContextLost()) {
+            gl.deleteFramebuffer(framebuffer);
+            gl.deleteTexture(texture);
+          }
+        }, gl, this.framebuffer, this.texture));
+
+    var texture = gl.createTexture();
+    gl.bindTexture(goog.webgl.TEXTURE_2D, texture);
+    gl.texImage2D(goog.webgl.TEXTURE_2D, 0, goog.webgl.RGBA,
+        framebufferDimension, framebufferDimension, 0, goog.webgl.RGBA,
+        goog.webgl.UNSIGNED_BYTE, null);
+    gl.texParameteri(goog.webgl.TEXTURE_2D, goog.webgl.TEXTURE_MAG_FILTER,
+        goog.webgl.LINEAR);
+    gl.texParameteri(goog.webgl.TEXTURE_2D, goog.webgl.TEXTURE_MIN_FILTER,
+        goog.webgl.LINEAR);
+
+    var framebuffer = gl.createFramebuffer();
+    gl.bindFramebuffer(goog.webgl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(goog.webgl.FRAMEBUFFER,
+        goog.webgl.COLOR_ATTACHMENT0, goog.webgl.TEXTURE_2D, texture, 0);
+
+    this.texture = texture;
+    this.framebuffer = framebuffer;
+    this.framebufferDimension = framebufferDimension;
+
+  } else {
+    gl.bindFramebuffer(goog.webgl.FRAMEBUFFER, this.framebuffer);
+  }
+
+};
 
 
 /**
@@ -76,41 +156,44 @@ ol.renderer.webgl.Layer.prototype.getColorMatrix = function() {
 
 
 /**
- * @inheritDoc
- * @return {ol.renderer.Map} MapRenderer.
+ * @protected
+ * @return {ol.renderer.webgl.Map} MapRenderer.
  */
-ol.renderer.webgl.Layer.prototype.getMapRenderer = function() {
-  return /** @type {ol.renderer.webgl.Map} */ (goog.base(
-      this, 'getMapRenderer'));
+ol.renderer.webgl.Layer.prototype.getWebGLMapRenderer = function() {
+  return /** @type {ol.renderer.webgl.Map} */ (this.getMapRenderer());
 };
 
 
 /**
  * @return {!goog.vec.Mat4.Number} Matrix.
  */
-ol.renderer.webgl.Layer.prototype.getTexCoordMatrix = goog.abstractMethod;
+ol.renderer.webgl.Layer.prototype.getTexCoordMatrix = function() {
+  return this.texCoordMatrix;
+};
 
 
 /**
  * @return {WebGLTexture} Texture.
  */
-ol.renderer.webgl.Layer.prototype.getTexture = goog.abstractMethod;
+ol.renderer.webgl.Layer.prototype.getTexture = function() {
+  return this.texture;
+};
 
 
 /**
  * @return {!goog.vec.Mat4.Number} Matrix.
  */
-ol.renderer.webgl.Layer.prototype.getProjectionMatrix = goog.abstractMethod;
+ol.renderer.webgl.Layer.prototype.getProjectionMatrix = function() {
+  return this.projectionMatrix;
+};
 
 
 /**
  * @inheritDoc
  */
 ol.renderer.webgl.Layer.prototype.handleLayerBrightnessChange = function() {
-  var value = this.getLayer().getBrightness();
-  ol.vec.Mat4.makeBrightness(this.brightnessMatrix_, value);
-  this.colorMatrixDirty_ = true;
-  this.dispatchChangeEvent();
+  this.updateBrightnessMatrix_();
+  this.renderIfReadyAndVisible();
 };
 
 
@@ -118,10 +201,8 @@ ol.renderer.webgl.Layer.prototype.handleLayerBrightnessChange = function() {
  * @inheritDoc
  */
 ol.renderer.webgl.Layer.prototype.handleLayerContrastChange = function() {
-  var value = this.getLayer().getContrast();
-  ol.vec.Mat4.makeContrast(this.contrastMatrix_, value);
-  this.colorMatrixDirty_ = true;
-  this.dispatchChangeEvent();
+  this.updateContrastMatrix_();
+  this.renderIfReadyAndVisible();
 };
 
 
@@ -129,10 +210,8 @@ ol.renderer.webgl.Layer.prototype.handleLayerContrastChange = function() {
  * @inheritDoc
  */
 ol.renderer.webgl.Layer.prototype.handleLayerHueChange = function() {
-  var value = this.getLayer().getHue();
-  ol.vec.Mat4.makeHue(this.hueMatrix_, value);
-  this.colorMatrixDirty_ = true;
-  this.dispatchChangeEvent();
+  this.updateHueMatrix_();
+  this.renderIfReadyAndVisible();
 };
 
 
@@ -140,17 +219,29 @@ ol.renderer.webgl.Layer.prototype.handleLayerHueChange = function() {
  * @inheritDoc
  */
 ol.renderer.webgl.Layer.prototype.handleLayerSaturationChange = function() {
-  var saturation = this.getLayer().getSaturation();
-  ol.vec.Mat4.makeSaturation(this.saturationMatrix_, saturation);
-  this.colorMatrixDirty_ = true;
-  this.dispatchChangeEvent();
+  this.updateSaturationMatrix_();
+  this.renderIfReadyAndVisible();
 };
 
 
 /**
  * Handle webglcontextlost.
  */
-ol.renderer.webgl.Layer.prototype.handleWebGLContextLost = goog.nullFunction;
+ol.renderer.webgl.Layer.prototype.handleWebGLContextLost = function() {
+  this.texture = null;
+  this.framebuffer = null;
+  this.framebufferDimension = undefined;
+};
+
+
+/**
+ * @private
+ */
+ol.renderer.webgl.Layer.prototype.updateBrightnessMatrix_ = function() {
+  var brightness = this.getLayer().getBrightness();
+  ol.vec.Mat4.makeBrightness(this.brightnessMatrix_, brightness);
+  this.colorMatrixDirty_ = true;
+};
 
 
 /**
@@ -164,4 +255,34 @@ ol.renderer.webgl.Layer.prototype.updateColorMatrix_ = function() {
   goog.vec.Mat4.multMat(colorMatrix, this.saturationMatrix_, colorMatrix);
   goog.vec.Mat4.multMat(colorMatrix, this.hueMatrix_, colorMatrix);
   this.colorMatrixDirty_ = false;
+};
+
+
+/**
+ * @private
+ */
+ol.renderer.webgl.Layer.prototype.updateContrastMatrix_ = function() {
+  var contrast = this.getLayer().getContrast();
+  ol.vec.Mat4.makeContrast(this.contrastMatrix_, contrast);
+  this.colorMatrixDirty_ = true;
+};
+
+
+/**
+ * @private
+ */
+ol.renderer.webgl.Layer.prototype.updateHueMatrix_ = function() {
+  var hue = this.getLayer().getHue();
+  ol.vec.Mat4.makeHue(this.hueMatrix_, hue);
+  this.colorMatrixDirty_ = true;
+};
+
+
+/**
+ * @private
+ */
+ol.renderer.webgl.Layer.prototype.updateSaturationMatrix_ = function() {
+  var saturation = this.getLayer().getSaturation();
+  ol.vec.Mat4.makeSaturation(this.saturationMatrix_, saturation);
+  this.colorMatrixDirty_ = true;
 };

@@ -1,7 +1,6 @@
 goog.provide('ol.geom.LineString');
 
 goog.require('goog.asserts');
-goog.require('ol.Extent');
 goog.require('ol.geom.Geometry');
 goog.require('ol.geom.GeometryType');
 goog.require('ol.geom.SharedVertices');
@@ -126,7 +125,7 @@ ol.geom.LineString.prototype.getBounds = function() {
         maxY = y;
       }
     }
-    this.bounds_ = new ol.Extent(minX, minY, maxX, maxY);
+    this.bounds_ = [minX, maxX, minY, maxY];
   }
   return this.bounds_;
 };
@@ -146,4 +145,21 @@ ol.geom.LineString.prototype.getType = function() {
  */
 ol.geom.LineString.prototype.getSharedId = function() {
   return this.sharedId_;
+};
+
+
+/**
+ * Calculate the distance from a coordinate to this linestring.
+ *
+ * @param {ol.Coordinate} coordinate Coordinate.
+ * @return {number} Distance from the coordinate to this linestring.
+ */
+ol.geom.LineString.prototype.distanceFromCoordinate = function(coordinate) {
+  var coordinates = this.getCoordinates();
+  var dist2 = Infinity;
+  for (var i = 0, j = 1, len = coordinates.length; j < len; i = j++) {
+    dist2 = Math.min(dist2, ol.geom.squaredDistanceToSegment(coordinate,
+        [coordinates[i], coordinates[j]]));
+  }
+  return Math.sqrt(dist2);
 };

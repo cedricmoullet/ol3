@@ -3,18 +3,16 @@
 goog.provide('ol.control.Attribution');
 
 goog.require('goog.array');
+goog.require('goog.asserts');
 goog.require('goog.dom');
 goog.require('goog.dom.TagName');
-goog.require('goog.events');
 goog.require('goog.object');
 goog.require('goog.style');
-goog.require('ol');
 goog.require('ol.Attribution');
 goog.require('ol.FrameState');
-goog.require('ol.MapEvent');
-goog.require('ol.MapEventType');
 goog.require('ol.TileRange');
 goog.require('ol.control.Control');
+goog.require('ol.css');
 goog.require('ol.source.Source');
 
 
@@ -22,16 +20,20 @@ goog.require('ol.source.Source');
 /**
  * @constructor
  * @extends {ol.control.Control}
- * @param {ol.control.AttributionOptions=} opt_options Options.
+ * @param {ol.control.AttributionOptions=} opt_options Attribution options.
  */
 ol.control.Attribution = function(opt_options) {
 
   var options = goog.isDef(opt_options) ? opt_options : {};
 
+  /**
+   * @private
+   * @type {Element}
+   */
   this.ulElement_ = goog.dom.createElement(goog.dom.TagName.UL);
 
   var element = goog.dom.createDom(goog.dom.TagName.DIV, {
-    'class': 'ol-attribution ' + ol.CSS_CLASS_UNSELECTABLE
+    'class': 'ol-attribution ' + ol.css.CLASS_UNSELECTABLE
   }, this.ulElement_);
 
   goog.base(this, {
@@ -58,12 +60,6 @@ ol.control.Attribution = function(opt_options) {
    */
   this.attributionElementRenderedVisible_ = {};
 
-  /**
-   * @private
-   * @type {Array.<?number>}
-   */
-  this.listenerKeys_ = null;
-
 };
 goog.inherits(ol.control.Attribution, ol.control.Control);
 
@@ -78,7 +74,7 @@ ol.control.Attribution.prototype.getTileSourceAttributions =
     function(usedTiles, sources) {
   /** @type {Object.<string, ol.Attribution>} */
   var attributions = {};
-  var i, tileRanges, tileSource, tileSourceAttribution,
+  var i, ii, tileRanges, tileSource, tileSourceAttribution,
       tileSourceAttributionKey, tileSourceAttributions, tileSourceKey, z;
   for (tileSourceKey in usedTiles) {
     goog.asserts.assert(tileSourceKey in sources);
@@ -88,7 +84,7 @@ ol.control.Attribution.prototype.getTileSourceAttributions =
       continue;
     }
     tileRanges = usedTiles[tileSourceKey];
-    for (i = 0; i < tileSourceAttributions.length; ++i) {
+    for (i = 0, ii = tileSourceAttributions.length; i < ii; ++i) {
       tileSourceAttribution = tileSourceAttributions[i];
       tileSourceAttributionKey = goog.getUid(tileSourceAttribution).toString();
       if (tileSourceAttributionKey in attributions) {
@@ -104,28 +100,10 @@ ol.control.Attribution.prototype.getTileSourceAttributions =
 
 
 /**
- * @param {ol.MapEvent} mapEvent Map event.
+ * @inheritDoc
  */
 ol.control.Attribution.prototype.handleMapPostrender = function(mapEvent) {
   this.updateElement_(mapEvent.frameState);
-};
-
-
-/**
- * @inheritDoc
- */
-ol.control.Attribution.prototype.setMap = function(map) {
-  if (!goog.isNull(this.listenerKeys_)) {
-    goog.array.forEach(this.listenerKeys_, goog.events.unlistenByKey);
-    this.listenerKeys_ = null;
-  }
-  goog.base(this, 'setMap', map);
-  if (!goog.isNull(map)) {
-    this.listenerKeys_ = [
-      goog.events.listen(map, ol.MapEventType.POSTRENDER,
-          this.handleMapPostrender, false, this)
-    ];
-  }
 };
 
 
@@ -156,8 +134,8 @@ ol.control.Attribution.prototype.updateElement_ = function(frameState) {
       sources[goog.getUid(source).toString()] = source;
       var attributions = source.getAttributions();
       if (!goog.isNull(attributions)) {
-        var attribution, i;
-        for (i = 0; i < attributions.length; ++i) {
+        var attribution, i, ii;
+        for (i = 0, ii = attributions.length; i < ii; ++i) {
           attribution = attributions[i];
           attributionKey = goog.getUid(attribution).toString();
           attributionsToRemove[attributionKey] = true;
@@ -176,8 +154,8 @@ ol.control.Attribution.prototype.updateElement_ = function(frameState) {
   var attributionKeys =
       goog.array.map(goog.object.getKeys(attributions), Number);
   goog.array.sort(attributionKeys);
-  var i, attributionElement, attributionKey;
-  for (i = 0; i < attributionKeys.length; ++i) {
+  var i, ii, attributionElement, attributionKey;
+  for (i = 0, ii = attributionKeys.length; i < ii; ++i) {
     attributionKey = attributionKeys[i].toString();
     if (attributionKey in this.attributionElements_) {
       if (!this.attributionElementRenderedVisible_[attributionKey]) {

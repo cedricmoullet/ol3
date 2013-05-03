@@ -1,7 +1,6 @@
 goog.provide('ol.TileCoord');
 
 goog.require('goog.array');
-goog.require('ol.Coordinate');
 
 
 /**
@@ -18,14 +17,11 @@ ol.QuadKeyCharCode = {
 
 /**
  * @constructor
- * @extends {ol.Coordinate}
  * @param {number} z Zoom level.
  * @param {number} x X.
  * @param {number} y Y.
  */
 ol.TileCoord = function(z, x, y) {
-
-  goog.base(this, x, y);
 
   /**
    * Zoom level.
@@ -33,8 +29,17 @@ ol.TileCoord = function(z, x, y) {
    */
   this.z = z;
 
+  /**
+   * @type {number}
+   */
+  this.x = x;
+
+  /**
+   * @type {number}
+   */
+  this.y = y;
+
 };
-goog.inherits(ol.TileCoord, ol.Coordinate);
 
 
 /**
@@ -79,6 +84,36 @@ ol.TileCoord.createFromString = function(str) {
 
 
 /**
+ * @param {number} z Z.
+ * @param {number} x X.
+ * @param {number} y Y.
+ * @param {ol.TileCoord|undefined} tileCoord Tile coordinate.
+ * @return {ol.TileCoord} Tile coordinate.
+ */
+ol.TileCoord.createOrUpdate = function(z, x, y, tileCoord) {
+  if (goog.isDef(tileCoord)) {
+    tileCoord.z = z;
+    tileCoord.x = x;
+    tileCoord.y = y;
+    return tileCoord;
+  } else {
+    return new ol.TileCoord(z, x, y);
+  }
+};
+
+
+/**
+ * @param {number} z Z.
+ * @param {number} x X.
+ * @param {number} y Y.
+ * @return {string} Key.
+ */
+ol.TileCoord.getKeyZXY = function(z, x, y) {
+  return [z, x, y].join('/');
+};
+
+
+/**
  * @return {number} Hash.
  */
 ol.TileCoord.prototype.hash = function() {
@@ -112,5 +147,5 @@ ol.TileCoord.prototype.quadKey = function() {
  * @return {string} String.
  */
 ol.TileCoord.prototype.toString = function() {
-  return [this.z, this.x, this.y].join('/');
+  return ol.TileCoord.getKeyZXY(this.z, this.x, this.y);
 };

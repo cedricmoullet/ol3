@@ -1,4 +1,6 @@
 goog.provide('ol.parser.ogc.WMSCapabilities_v1_1_1_WMSC');
+
+goog.require('goog.object');
 goog.require('ol.parser.ogc.WMSCapabilities_v1_1_1');
 
 
@@ -22,7 +24,7 @@ ol.parser.ogc.WMSCapabilities_v1_1_1_WMSC = function() {
     },
     'Resolutions': function(node, tileset) {
       var res = this.getChildValue(node).split(' ');
-      for (var i = 0, len = res.length; i < len; i++) {
+      for (var i = 0, ii = res.length; i < ii; i++) {
         if (res[i] !== '') {
           tileset['resolutions'].push(parseFloat(res[i]));
         }

@@ -1,6 +1,9 @@
 goog.provide('ol.renderer.dom.ImageLayer');
 
 goog.require('goog.dom');
+goog.require('goog.dom.TagName');
+goog.require('goog.events');
+goog.require('goog.events.EventType');
 goog.require('goog.vec.Mat4');
 goog.require('ol.Image');
 goog.require('ol.ImageState');
@@ -19,7 +22,6 @@ goog.require('ol.renderer.dom.Layer');
  */
 ol.renderer.dom.ImageLayer = function(mapRenderer, imageLayer) {
   var target = goog.dom.createElement(goog.dom.TagName.DIV);
-  target.className = 'ol-layer-image';
   target.style.position = 'absolute';
 
   goog.base(this, mapRenderer, imageLayer, target);
@@ -42,6 +44,7 @@ goog.inherits(ol.renderer.dom.ImageLayer, ol.renderer.dom.Layer);
 
 
 /**
+ * @protected
  * @return {ol.layer.ImageLayer} Image layer.
  */
 ol.renderer.dom.ImageLayer.prototype.getImageLayer = function() {
@@ -96,19 +99,24 @@ ol.renderer.dom.ImageLayer.prototype.renderFrame =
         1);
     goog.vec.Mat4.translate(
         transform,
-        (imageExtent.minX - viewCenter.x) / imageResolution,
-        (viewCenter.y - imageExtent.maxY) / imageResolution,
+        (imageExtent[0] - viewCenter[0]) / imageResolution,
+        (viewCenter[1] - imageExtent[3]) / imageResolution,
         0);
     if (image != this.image_) {
       var imageElement = image.getImageElement(this);
+      // Bootstrap sets the style max-width: 100% for all images, which breaks
+      // prevents the image from being displayed in FireFox.  Workaround by
+      // overriding the max-width style.
+      imageElement.style.maxWidth = 'none';
       imageElement.style.position = 'absolute';
       goog.dom.removeChildren(this.target);
       goog.dom.appendChild(this.target, imageElement);
       this.image_ = image;
     }
-    this.setTransform(transform);
+    this.setTransform_(transform);
 
     this.updateAttributions(frameState.attributions, image.getAttributions());
+    this.updateLogos(frameState, imageSource);
   }
 
 };
@@ -116,8 +124,9 @@ ol.renderer.dom.ImageLayer.prototype.renderFrame =
 
 /**
  * @param {goog.vec.Mat4.AnyType} transform Transform.
+ * @private
  */
-ol.renderer.dom.ImageLayer.prototype.setTransform = function(transform) {
+ol.renderer.dom.ImageLayer.prototype.setTransform_ = function(transform) {
   if (!goog.vec.Mat4.equals(transform, this.transform_)) {
     ol.dom.transformElement2D(this.target, transform, 6);
     goog.vec.Mat4.setFromArray(this.transform_, transform);

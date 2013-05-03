@@ -1,5 +1,7 @@
 goog.provide('ol.renderer.canvas.ImageLayer');
 
+goog.require('goog.events');
+goog.require('goog.events.EventType');
 goog.require('goog.vec.Mat4');
 goog.require('ol.Image');
 goog.require('ol.ImageState');
@@ -46,6 +48,7 @@ ol.renderer.canvas.ImageLayer.prototype.getImage = function() {
 
 
 /**
+ * @protected
  * @return {ol.layer.ImageLayer} Single image layer.
  */
 ol.renderer.canvas.ImageLayer.prototype.getImageLayer = function() {
@@ -110,10 +113,11 @@ ol.renderer.canvas.ImageLayer.prototype.renderFrame =
         1);
     goog.vec.Mat4.translate(
         transform,
-        (imageExtent.minX - viewCenter.x) / imageResolution,
-        (viewCenter.y - imageExtent.maxY) / imageResolution,
+        (imageExtent[0] - viewCenter[0]) / imageResolution,
+        (viewCenter[1] - imageExtent[3]) / imageResolution,
         0);
 
     this.updateAttributions(frameState.attributions, image.getAttributions());
+    this.updateLogos(frameState, imageSource);
   }
 };

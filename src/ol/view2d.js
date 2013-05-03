@@ -4,18 +4,18 @@
 goog.provide('ol.View2D');
 goog.provide('ol.View2DProperty');
 
+goog.require('goog.asserts');
 goog.require('ol.Constraints');
-goog.require('ol.Coordinate');
-goog.require('ol.Extent');
 goog.require('ol.IView2D');
 goog.require('ol.IView3D');
 goog.require('ol.Projection');
 goog.require('ol.ResolutionConstraint');
 goog.require('ol.RotationConstraint');
+goog.require('ol.RotationConstraintType');
 goog.require('ol.Size');
 goog.require('ol.View');
-goog.require('ol.animation');
-goog.require('ol.easing');
+goog.require('ol.coordinate');
+goog.require('ol.extent');
 goog.require('ol.projection');
 
 
@@ -36,41 +36,121 @@ ol.View2DProperty = {
  * @implements {ol.IView2D}
  * @implements {ol.IView3D}
  * @extends {ol.View}
- * @param {ol.View2DOptions=} opt_view2DOptions View2D options.
+ * @param {ol.View2DOptions=} opt_options View2D options.
  */
-ol.View2D = function(opt_view2DOptions) {
+ol.View2D = function(opt_options) {
   goog.base(this);
-  var view2DOptions = opt_view2DOptions || {};
+  var options = opt_options || {};
 
   /**
    * @type {Object.<string, *>}
    */
   var values = {};
-  values[ol.View2DProperty.CENTER] = goog.isDef(view2DOptions.center) ?
-      view2DOptions.center : null;
+  values[ol.View2DProperty.CENTER] = goog.isDef(options.center) ?
+      options.center : null;
   values[ol.View2DProperty.PROJECTION] = ol.projection.createProjection(
-      view2DOptions.projection, 'EPSG:3857');
-  if (goog.isDef(view2DOptions.resolution)) {
-    values[ol.View2DProperty.RESOLUTION] = view2DOptions.resolution;
-  } else if (goog.isDef(view2DOptions.zoom)) {
+      options.projection, 'EPSG:3857');
+  if (goog.isDef(options.resolution)) {
+    values[ol.View2DProperty.RESOLUTION] = options.resolution;
+  } else if (goog.isDef(options.zoom)) {
     var projectionExtent = values[ol.View2DProperty.PROJECTION].getExtent();
     var size = Math.max(
-        projectionExtent.maxX - projectionExtent.minX,
-        projectionExtent.maxY - projectionExtent.minY);
+        projectionExtent[1] - projectionExtent[0],
+        projectionExtent[3] - projectionExtent[2]);
     values[ol.View2DProperty.RESOLUTION] =
-        size / (ol.DEFAULT_TILE_SIZE * Math.pow(2, view2DOptions.zoom));
+        size / (ol.DEFAULT_TILE_SIZE * Math.pow(2, options.zoom));
   }
-  values[ol.View2DProperty.ROTATION] = view2DOptions.rotation;
+  values[ol.View2DProperty.ROTATION] = options.rotation;
   this.setValues(values);
+
+  var parts = ol.View2D.createResolutionConstraint_(options);
+
+  /**
+   * @private
+   * @type {number}
+   */
+  this.maxResolution_ = parts[1];
+
+  /**
+   * @private
+   * @type {number}
+   */
+  this.minResolution_ = parts[2];
+
+  var resolutionConstraint = parts[0];
+  var rotationConstraint = ol.View2D.createRotationConstraint_(options);
 
   /**
    * @private
    * @type {ol.Constraints}
    */
-  this.constraints_ = ol.View2D.createConstraints_(view2DOptions);
+  this.constraints_ = new ol.Constraints(resolutionConstraint,
+      rotationConstraint);
 
 };
 goog.inherits(ol.View2D, ol.View);
+
+
+/**
+ * @param {number} rotation Target rotation.
+ * @param {ol.Coordinate} anchor Rotation anchor.
+ * @return {ol.Coordinate|undefined} Center for rotation and anchor.
+ */
+ol.View2D.prototype.calculateCenterRotate = function(rotation, anchor) {
+  var center;
+  var currentCenter = this.getCenter();
+  if (goog.isDef(currentCenter)) {
+    center = [currentCenter[0] - anchor[0], currentCenter[1] - anchor[1]];
+    ol.coordinate.rotate(center, rotation - this.getRotation());
+    ol.coordinate.add(center, anchor);
+  }
+  return center;
+};
+
+
+/**
+ * @param {number} resolution Target resolution.
+ * @param {ol.Coordinate} anchor Zoom anchor.
+ * @return {ol.Coordinate|undefined} Center for resolution and anchor.
+ */
+ol.View2D.prototype.calculateCenterZoom = function(resolution, anchor) {
+  var center;
+  var currentCenter = this.getCenter();
+  var currentResolution = this.getResolution();
+  if (goog.isDef(currentCenter) && goog.isDef(currentResolution)) {
+    var x = anchor[0] -
+        resolution * (anchor[0] - currentCenter[0]) / currentResolution;
+    var y = anchor[1] -
+        resolution * (anchor[1] - currentCenter[1]) / currentResolution;
+    center = [x, y];
+  }
+  return center;
+};
+
+
+/**
+ * @param {number|undefined} resolution Resolution.
+ * @param {number=} opt_delta Delta.
+ * @param {number=} opt_direction Direction.
+ * @return {number|undefined} Constrained resolution.
+ */
+ol.View2D.prototype.constrainResolution = function(
+    resolution, opt_delta, opt_direction) {
+  var delta = opt_delta || 0;
+  var direction = opt_direction || 0;
+  return this.constraints_.resolution(resolution, delta, direction);
+};
+
+
+/**
+ * @param {number|undefined} rotation Rotation.
+ * @param {number=} opt_delta Delta.
+ * @return {number|undefined} Constrained rotation.
+ */
+ol.View2D.prototype.constrainRotation = function(rotation, opt_delta) {
+  var delta = opt_delta || 0;
+  return this.constraints_.rotation(rotation, delta);
+};
 
 
 /**
@@ -94,11 +174,11 @@ ol.View2D.prototype.getExtent = function(size) {
   goog.asserts.assert(this.isDef());
   var center = this.getCenter();
   var resolution = this.getResolution();
-  var minX = center.x - resolution * size.width / 2;
-  var minY = center.y - resolution * size.height / 2;
-  var maxX = center.x + resolution * size.width / 2;
-  var maxY = center.y + resolution * size.height / 2;
-  return new ol.Extent(minX, minY, maxX, maxY);
+  var minX = center[0] - resolution * size.width / 2;
+  var maxX = center[0] + resolution * size.width / 2;
+  var minY = center[1] - resolution * size.height / 2;
+  var maxY = center[1] + resolution * size.height / 2;
+  return [minX, maxX, minY, maxX];
 };
 
 
@@ -134,9 +214,34 @@ goog.exportProperty(
  * @return {number} Resolution.
  */
 ol.View2D.prototype.getResolutionForExtent = function(extent, size) {
-  var xResolution = (extent.maxX - extent.minX) / size.width;
-  var yResolution = (extent.maxY - extent.minY) / size.height;
+  var xResolution = (extent[1] - extent[0]) / size.width;
+  var yResolution = (extent[3] - extent[2]) / size.height;
   return Math.max(xResolution, yResolution);
+};
+
+
+/**
+ * Return a function that returns a value between 0 and 1 for a
+ * resolution. Exponential scaling is assumed.
+ * @param {number=} opt_power Power.
+ * @return {function(number): number} Resolution for value function.
+ */
+ol.View2D.prototype.getResolutionForValueFunction = function(opt_power) {
+  var power = opt_power || 2;
+  var maxResolution = this.maxResolution_;
+  var minResolution = this.minResolution_;
+  var max = Math.log(maxResolution / minResolution) / Math.log(power);
+  return (
+      /**
+       * @param {number} value Value.
+       * @return {number} Resolution.
+       */
+      function(value) {
+        var resolution = maxResolution / Math.pow(power, value * max);
+        goog.asserts.assert(resolution >= minResolution &&
+            resolution <= maxResolution);
+        return resolution;
+      });
 };
 
 
@@ -151,6 +256,31 @@ goog.exportProperty(
     ol.View2D.prototype,
     'getRotation',
     ol.View2D.prototype.getRotation);
+
+
+/**
+ * Return a function that returns a resolution for a value between
+ * 0 and 1. Exponential scaling is assumed.
+ * @param {number=} opt_power Power.
+ * @return {function(number): number} Value for resolution function.
+ */
+ol.View2D.prototype.getValueForResolutionFunction = function(opt_power) {
+  var power = opt_power || 2;
+  var maxResolution = this.maxResolution_;
+  var minResolution = this.minResolution_;
+  var max = Math.log(maxResolution / minResolution) / Math.log(power);
+  return (
+      /**
+       * @param {number} resolution Resolution.
+       * @return {number} Value.
+       */
+      function(resolution) {
+        var value =
+            (Math.log(maxResolution / resolution) / Math.log(power)) / max;
+        goog.asserts.assert(value >= 0 && value <= 1);
+        return value;
+      });
+};
 
 
 /**
@@ -171,7 +301,7 @@ ol.View2D.prototype.getView2DState = function() {
   var resolution = /** @type {number} */ (this.getResolution());
   var rotation = /** @type {number} */ (this.getRotation());
   return {
-    center: new ol.Coordinate(center.x, center.y),
+    center: center.slice(),
     projection: projection,
     resolution: resolution,
     rotation: rotation
@@ -191,9 +321,9 @@ ol.View2D.prototype.getView3D = function() {
  * @param {ol.Size} size Box pixel size.
  */
 ol.View2D.prototype.fitExtent = function(extent, size) {
-  this.setCenter(extent.getCenter());
+  this.setCenter(ol.extent.getCenter(extent));
   var resolution = this.getResolutionForExtent(extent, size);
-  resolution = this.constraints_.resolution(resolution, 0);
+  resolution = this.constrainResolution(resolution, 0, 0);
   this.setResolution(resolution);
 };
 
@@ -256,190 +386,52 @@ goog.exportProperty(
 
 
 /**
- * @param {ol.Map} map Map.
- * @param {ol.Coordinate} delta Delta.
- * @param {number=} opt_duration Duration.
+ * @private
+ * @param {ol.View2DOptions} options View2D options.
+ * @return {Array} Array of three elements: the resolution constraint,
+ *     maxResolution, and minResolution.
  */
-ol.View2D.prototype.pan = function(map, delta, opt_duration) {
-  var currentCenter = this.getCenter();
-  if (goog.isDef(currentCenter)) {
-    if (goog.isDef(opt_duration)) {
-      map.requestRenderFrame();
-      map.addPreRenderFunction(ol.animation.pan({
-        source: currentCenter,
-        duration: opt_duration,
-        easing: ol.easing.linear
-      }));
+ol.View2D.createResolutionConstraint_ = function(options) {
+  var resolutionConstraint;
+  var maxResolution;
+  var minResolution;
+  if (goog.isDef(options.resolutions)) {
+    var resolutions = options.resolutions;
+    maxResolution = resolutions[0];
+    minResolution = resolutions[resolutions.length - 1];
+    resolutionConstraint = ol.ResolutionConstraint.createSnapToResolutions(
+        resolutions);
+  } else {
+    maxResolution = options.maxResolution;
+    if (!goog.isDef(maxResolution)) {
+      var projectionExtent = ol.projection.createProjection(
+          options.projection, 'EPSG:3857').getExtent();
+      maxResolution = Math.max(
+          projectionExtent[1] - projectionExtent[0],
+          projectionExtent[3] - projectionExtent[2]) / ol.DEFAULT_TILE_SIZE;
     }
-    this.setCenter(new ol.Coordinate(
-        currentCenter.x + delta.x, currentCenter.y + delta.y));
+    var maxZoom = options.maxZoom;
+    if (!goog.isDef(maxZoom)) {
+      maxZoom = 28;
+    }
+    var zoomFactor = options.zoomFactor;
+    if (!goog.isDef(zoomFactor)) {
+      zoomFactor = 2;
+    }
+    minResolution = maxResolution / Math.pow(zoomFactor, maxZoom);
+    resolutionConstraint = ol.ResolutionConstraint.createSnapToPower(
+        zoomFactor, maxResolution, maxZoom);
   }
-};
-
-
-/**
- * @param {ol.Map} map Map.
- * @param {number|undefined} rotation Rotation.
- * @param {ol.Coordinate=} opt_anchor Anchor coordinate.
- * @param {number=} opt_duration Duration.
- */
-ol.View2D.prototype.rotate =
-    function(map, rotation, opt_anchor, opt_duration) {
-  rotation = this.constraints_.rotation(rotation, 0);
-  this.rotateWithoutConstraints(map, rotation, opt_anchor, opt_duration);
-};
-
-
-/**
- * @param {ol.Map} map Map.
- * @param {number|undefined} rotation Rotation.
- * @param {ol.Coordinate=} opt_anchor Anchor coordinate.
- * @param {number=} opt_duration Duration.
- */
-ol.View2D.prototype.rotateWithoutConstraints =
-    function(map, rotation, opt_anchor, opt_duration) {
-  if (goog.isDefAndNotNull(rotation)) {
-    var currentRotation = this.getRotation();
-    var currentCenter = this.getCenter();
-    if (goog.isDef(currentRotation) && goog.isDef(currentCenter) &&
-        goog.isDef(opt_duration)) {
-      map.requestRenderFrame();
-      map.addPreRenderFunction(ol.animation.rotate({
-        rotation: currentRotation,
-        duration: opt_duration,
-        easing: ol.easing.easeOut
-      }));
-      if (goog.isDef(opt_anchor)) {
-        map.addPreRenderFunction(ol.animation.pan({
-          source: currentCenter,
-          duration: opt_duration,
-          easing: ol.easing.easeOut
-        }));
-      }
-    }
-    if (goog.isDefAndNotNull(opt_anchor)) {
-      var anchor = opt_anchor;
-      var oldCenter = /** @type {!ol.Coordinate} */ (this.getCenter());
-      var center = new ol.Coordinate(
-          oldCenter.x - anchor.x,
-          oldCenter.y - anchor.y);
-      center.rotate(rotation - this.getRotation());
-      center.x += anchor.x;
-      center.y += anchor.y;
-      map.withFrozenRendering(function() {
-        this.setCenter(center);
-        this.setRotation(rotation);
-      }, this);
-    } else {
-      this.setRotation(rotation);
-    }
-  }
-};
-
-
-/**
- * @param {ol.Map} map Map.
- * @param {number|undefined} resolution Resolution to go to.
- * @param {ol.Coordinate=} opt_anchor Anchor coordinate.
- * @param {number=} opt_duration Duration.
- */
-ol.View2D.prototype.zoom =
-    function(map, resolution, opt_anchor, opt_duration) {
-  resolution = this.constraints_.resolution(resolution, 0);
-  this.zoomWithoutConstraints(map, resolution, opt_anchor, opt_duration);
-};
-
-
-/**
- * @param {ol.Map} map Map.
- * @param {number} delta Delta from previous zoom level.
- * @param {ol.Coordinate=} opt_anchor Anchor coordinate.
- * @param {number=} opt_duration Duration.
- */
-ol.View2D.prototype.zoomByDelta =
-    function(map, delta, opt_anchor, opt_duration) {
-  var currentResolution = this.getResolution();
-  var resolution = this.constraints_.resolution(currentResolution, delta);
-  this.zoomWithoutConstraints(map, resolution, opt_anchor, opt_duration);
-};
-
-
-/**
- * @param {ol.Map} map Map.
- * @param {number|undefined} resolution Resolution to go to.
- * @param {ol.Coordinate=} opt_anchor Anchor coordinate.
- * @param {number=} opt_duration Duration.
- */
-ol.View2D.prototype.zoomWithoutConstraints =
-    function(map, resolution, opt_anchor, opt_duration) {
-  if (goog.isDefAndNotNull(resolution)) {
-    var currentResolution = this.getResolution();
-    var currentCenter = this.getCenter();
-    if (goog.isDef(currentResolution) && goog.isDef(currentCenter) &&
-        goog.isDef(opt_duration)) {
-      map.requestRenderFrame();
-      map.addPreRenderFunction(ol.animation.zoom({
-        resolution: currentResolution,
-        duration: opt_duration,
-        easing: ol.easing.easeOut
-      }));
-      if (goog.isDef(opt_anchor)) {
-        map.addPreRenderFunction(ol.animation.pan({
-          source: currentCenter,
-          duration: opt_duration,
-          easing: ol.easing.easeOut
-        }));
-      }
-    }
-    if (goog.isDefAndNotNull(opt_anchor)) {
-      var anchor = opt_anchor;
-      var oldCenter = /** @type {!ol.Coordinate} */ (this.getCenter());
-      var oldResolution = this.getResolution();
-      var x = anchor.x - resolution * (anchor.x - oldCenter.x) / oldResolution;
-      var y = anchor.y - resolution * (anchor.y - oldCenter.y) / oldResolution;
-      var center = new ol.Coordinate(x, y);
-      map.withFrozenRendering(function() {
-        this.setCenter(center);
-        this.setResolution(resolution);
-      }, this);
-    } else {
-      this.setResolution(resolution);
-    }
-  }
+  return [resolutionConstraint, maxResolution, minResolution];
 };
 
 
 /**
  * @private
- * @param {ol.View2DOptions} view2DOptions View2D options.
- * @return {ol.Constraints} Constraints.
+ * @param {ol.View2DOptions} options View2D options.
+ * @return {ol.RotationConstraintType} Rotation constraint.
  */
-ol.View2D.createConstraints_ = function(view2DOptions) {
-  var resolutionConstraint;
-  if (goog.isDef(view2DOptions.resolutions)) {
-    resolutionConstraint = ol.ResolutionConstraint.createSnapToResolutions(
-        view2DOptions.resolutions);
-  } else {
-    var maxResolution, numZoomLevels, zoomFactor;
-    if (goog.isDef(view2DOptions.maxResolution) &&
-        goog.isDef(view2DOptions.numZoomLevels) &&
-        goog.isDef(view2DOptions.zoomFactor)) {
-      maxResolution = view2DOptions.maxResolution;
-      numZoomLevels = view2DOptions.numZoomLevels;
-      zoomFactor = view2DOptions.zoomFactor;
-    } else {
-      var projectionExtent = ol.projection.createProjection(
-          view2DOptions.projection, 'EPSG:3857').getExtent();
-      maxResolution = Math.max(
-          projectionExtent.maxX - projectionExtent.minX,
-          projectionExtent.maxY - projectionExtent.minY) / ol.DEFAULT_TILE_SIZE;
-      numZoomLevels = 29;
-      zoomFactor = 2;
-    }
-    resolutionConstraint = ol.ResolutionConstraint.createSnapToPower(
-        zoomFactor, maxResolution, numZoomLevels - 1);
-  }
+ol.View2D.createRotationConstraint_ = function(options) {
   // FIXME rotation constraint is not configurable at the moment
-  var rotationConstraint = ol.RotationConstraint.createSnapToZero();
-  return new ol.Constraints(resolutionConstraint, rotationConstraint);
+  return ol.RotationConstraint.createSnapToZero();
 };

@@ -1,9 +1,12 @@
 goog.provide('ol.interaction.DragRotate');
 
+goog.require('goog.asserts');
 goog.require('ol.View2D');
 goog.require('ol.ViewHint');
 goog.require('ol.interaction.ConditionType');
 goog.require('ol.interaction.Drag');
+goog.require('ol.interaction.Interaction');
+goog.require('ol.interaction.condition');
 
 
 /**
@@ -16,9 +19,11 @@ ol.interaction.DRAGROTATE_ANIMATION_DURATION = 250;
 /**
  * @constructor
  * @extends {ol.interaction.Drag}
- * @param {ol.interaction.ConditionType} condition Condition.
+ * @param {ol.interaction.DragRotateOptions=} opt_options Options.
  */
-ol.interaction.DragRotate = function(condition) {
+ol.interaction.DragRotate = function(opt_options) {
+
+  var options = goog.isDef(opt_options) ? opt_options : {};
 
   goog.base(this);
 
@@ -26,13 +31,14 @@ ol.interaction.DragRotate = function(condition) {
    * @private
    * @type {ol.interaction.ConditionType}
    */
-  this.condition_ = condition;
+  this.condition_ = goog.isDef(options.condition) ?
+      options.condition : ol.interaction.condition.altShiftKeysOnly;
 
   /**
    * @private
    * @type {number|undefined}
    */
-  this.lastAngle_;
+  this.lastAngle_ = undefined;
 
 };
 goog.inherits(ol.interaction.DragRotate, ol.interaction.Drag);
@@ -51,9 +57,10 @@ ol.interaction.DragRotate.prototype.handleDrag = function(mapBrowserEvent) {
     var delta = theta - this.lastAngle_;
     var view = map.getView();
     // FIXME supports View2D only
-    goog.asserts.assert(view instanceof ol.View2D);
+    goog.asserts.assertInstanceof(view, ol.View2D);
     map.requestRenderFrame();
-    view.rotateWithoutConstraints(map, view.getRotation() - delta);
+    ol.interaction.Interaction.rotateWithoutConstraints(
+        map, view, view.getRotation() - delta);
   }
   this.lastAngle_ = theta;
 };
@@ -67,8 +74,8 @@ ol.interaction.DragRotate.prototype.handleDragEnd = function(mapBrowserEvent) {
   var map = mapBrowserEvent.map;
   // FIXME supports View2D only
   var view = map.getView();
-  goog.asserts.assert(view instanceof ol.View2D);
-  view.rotate(map, view.getRotation(), undefined,
+  goog.asserts.assertInstanceof(view, ol.View2D);
+  ol.interaction.Interaction.rotate(map, view, view.getRotation(), undefined,
       ol.interaction.DRAGROTATE_ANIMATION_DURATION);
   view.setHint(ol.ViewHint.INTERACTING, -1);
 };
@@ -84,7 +91,7 @@ ol.interaction.DragRotate.prototype.handleDragStart =
     var map = mapBrowserEvent.map;
     // FIXME supports View2D only
     var view = map.getView();
-    goog.asserts.assert(view instanceof ol.View2D);
+    goog.asserts.assertInstanceof(view, ol.View2D);
     map.requestRenderFrame();
     this.lastAngle_ = undefined;
     view.setHint(ol.ViewHint.INTERACTING, 1);

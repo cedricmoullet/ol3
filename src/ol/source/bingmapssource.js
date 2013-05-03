@@ -2,13 +2,13 @@ goog.provide('ol.source.BingMaps');
 
 goog.require('goog.Uri');
 goog.require('goog.array');
+goog.require('goog.asserts');
 goog.require('goog.net.Jsonp');
 goog.require('ol.Attribution');
-goog.require('ol.Extent');
 goog.require('ol.Size');
-goog.require('ol.TileCoord');
 goog.require('ol.TileRange');
 goog.require('ol.TileUrlFunction');
+goog.require('ol.extent');
 goog.require('ol.projection');
 goog.require('ol.source.ImageTileSource');
 goog.require('ol.tilegrid.XYZ');
@@ -18,9 +18,9 @@ goog.require('ol.tilegrid.XYZ');
 /**
  * @constructor
  * @extends {ol.source.ImageTileSource}
- * @param {ol.source.BingMapsOptions} bingMapsOptions Bing Maps options.
+ * @param {ol.source.BingMapsOptions} options Bing Maps options.
  */
-ol.source.BingMaps = function(bingMapsOptions) {
+ol.source.BingMaps = function(options) {
 
   goog.base(this, {
     crossOrigin: 'anonymous',
@@ -32,8 +32,7 @@ ol.source.BingMaps = function(bingMapsOptions) {
    * @private
    * @type {string}
    */
-  this.culture_ = goog.isDef(bingMapsOptions.culture) ?
-      bingMapsOptions.culture : 'en-us';
+  this.culture_ = goog.isDef(options.culture) ? options.culture : 'en-us';
 
   /**
    * @private
@@ -42,12 +41,11 @@ ol.source.BingMaps = function(bingMapsOptions) {
   this.ready_ = false;
 
   var uri = new goog.Uri(
-      '//dev.virtualearth.net/REST/v1/Imagery/Metadata/' +
-      bingMapsOptions.style);
+      '//dev.virtualearth.net/REST/v1/Imagery/Metadata/' + options.style);
   var jsonp = new goog.net.Jsonp(uri, 'jsonp');
   jsonp.send({
     'include': 'ImageryProviders',
-    'key': bingMapsOptions.key
+    'key': options.key
   }, goog.bind(this.handleImageryMetadataResponse, this));
 
 };
@@ -72,44 +70,40 @@ ol.source.BingMaps.prototype.handleImageryMetadataResponse =
   goog.asserts.assert(resourceSet.resources.length == 1);
   var resource = resourceSet.resources[0];
 
-  var zoomMin = resource.zoomMin;
-  var zoomMax = resource.zoomMax;
   var tileSize = new ol.Size(resource.imageWidth, resource.imageHeight);
   var tileGrid = new ol.tilegrid.XYZ({
-    maxZoom: zoomMax,
+    minZoom: resource.zoomMin,
+    maxZoom: resource.zoomMax,
     tileSize: tileSize
   });
   this.tileGrid = tileGrid;
 
+  var culture = this.culture_;
   this.tileUrlFunction = ol.TileUrlFunction.withTileCoordTransform(
-      function(tileCoord) {
-        if (tileCoord.z < zoomMin || zoomMax < tileCoord.z) {
-          return null;
-        }
-        var n = 1 << tileCoord.z;
-        var y = -tileCoord.y - 1;
-        if (y < 0 || n <= y) {
-          return null;
-        } else {
-          var x = goog.math.modulo(tileCoord.x, n);
-          return new ol.TileCoord(tileCoord.z, x, y);
-        }
-      },
+      tileGrid.createTileCoordTransform(),
       ol.TileUrlFunction.createFromTileUrlFunctions(
           goog.array.map(
               resource.imageUrlSubdomains,
               function(subdomain) {
                 var imageUrl = resource.imageUrl
                     .replace('{subdomain}', subdomain)
-                    .replace('{culture}', this.culture_);
-                return function(tileCoord) {
-                  if (goog.isNull(tileCoord)) {
-                    return undefined;
-                  } else {
-                    return imageUrl.replace(
-                        '{quadkey}', tileCoord.quadKey());
-                  }
-                };
+                    .replace('{culture}', culture);
+                return (
+                    /**
+                     * @param {ol.TileCoord} tileCoord Tile coordinate.
+                     * @param {ol.Projection} projection Projection.
+                     * @return {string|undefined} Tile URL.
+                     */
+                    function(tileCoord, projection) {
+                      goog.asserts.assert(ol.projection.equivalent(
+                          projection, this.getProjection()));
+                      if (goog.isNull(tileCoord)) {
+                        return undefined;
+                      } else {
+                        return imageUrl.replace(
+                            '{quadkey}', tileCoord.quadKey());
+                      }
+                    });
               })));
 
   var transform = ol.projection.getTransformFromProjections(
@@ -126,9 +120,8 @@ ol.source.BingMaps.prototype.handleImageryMetadataResponse =
               var minZ = coverageArea.zoomMin;
               var maxZ = coverageArea.zoomMax;
               var bbox = coverageArea.bbox;
-              var epsg4326Extent =
-                  new ol.Extent(bbox[1], bbox[0], bbox[3], bbox[2]);
-              var extent = epsg4326Extent.transform(transform);
+              var epsg4326Extent = [bbox[1], bbox[3], bbox[0], bbox[2]];
+              var extent = ol.extent.transform(epsg4326Extent, transform);
               var tileRange, z, zKey;
               for (z = minZ; z <= maxZ; ++z) {
                 zKey = z.toString();
@@ -143,6 +136,8 @@ ol.source.BingMaps.prototype.handleImageryMetadataResponse =
         return new ol.Attribution(html, tileRanges);
       });
   this.setAttributions(attributions);
+
+  this.setLogo(brandLogoUri);
 
   this.ready_ = true;
 

@@ -1,6 +1,5 @@
 // FIXME add some error checking
 // FIXME check order of async callbacks
-// FIXME use minzoom when supported
 
 /**
  * @see http://mapbox.com/developers/api/
@@ -12,10 +11,9 @@ goog.provide('ol.tilejson');
 goog.require('goog.asserts');
 goog.require('goog.net.jsloader');
 goog.require('ol.Attribution');
-goog.require('ol.Extent');
-goog.require('ol.TileCoord');
 goog.require('ol.TileRange');
 goog.require('ol.TileUrlFunction');
+goog.require('ol.extent');
 goog.require('ol.projection');
 goog.require('ol.source.ImageTileSource');
 goog.require('ol.tilegrid.XYZ');
@@ -41,12 +39,12 @@ goog.exportSymbol('grid', grid);
 /**
  * @constructor
  * @extends {ol.source.ImageTileSource}
- * @param {ol.source.TileJSONOptions} tileJsonOptions TileJSON optios.
+ * @param {ol.source.TileJSONOptions} options TileJSON options.
  */
-ol.source.TileJSON = function(tileJsonOptions) {
+ol.source.TileJSON = function(options) {
 
   goog.base(this, {
-    crossOrigin: tileJsonOptions.crossOrigin,
+    crossOrigin: options.crossOrigin,
     projection: ol.projection.get('EPSG:3857')
   });
 
@@ -60,8 +58,7 @@ ol.source.TileJSON = function(tileJsonOptions) {
    * @private
    * @type {!goog.async.Deferred}
    */
-  this.deferred_ =
-      goog.net.jsloader.load(tileJsonOptions.uri, {cleanupWhenDone: true});
+  this.deferred_ = goog.net.jsloader.load(options.url, {cleanupWhenDone: true});
   this.deferred_.addCallback(this.handleTileJSONResponse, this);
 
 };
@@ -77,17 +74,14 @@ ol.source.TileJSON.prototype.handleTileJSONResponse = function() {
 
   var epsg4326Projection = ol.projection.get('EPSG:4326');
 
-  var epsg4326Extent, extent;
+  var extent;
   if (goog.isDef(tileJSON.bounds)) {
     var bounds = tileJSON.bounds;
-    epsg4326Extent = new ol.Extent(
-        bounds[0], bounds[1], bounds[2], bounds[3]);
-    extent = epsg4326Extent.transform(ol.projection.getTransformFromProjections(
-        epsg4326Projection, this.getProjection()));
+    var epsg4326Extent = [bounds[0], bounds[2], bounds[1], bounds[3]];
+    var transform = ol.projection.getTransformFromProjections(
+        epsg4326Projection, this.getProjection());
+    extent = ol.extent.transform(epsg4326Extent, transform);
     this.setExtent(extent);
-  } else {
-    epsg4326Extent = null;
-    extent = null;
   }
 
   var scheme = goog.isDef(tileJSON.scheme) || 'xyz';
@@ -95,38 +89,22 @@ ol.source.TileJSON.prototype.handleTileJSONResponse = function() {
     goog.asserts.assert(tileJSON.scheme == 'xyz');
   }
   var minZoom = tileJSON.minzoom || 0;
-  goog.asserts.assert(minZoom === 0); // FIXME
   var maxZoom = tileJSON.maxzoom || 22;
   var tileGrid = new ol.tilegrid.XYZ({
-    maxZoom: maxZoom
+    maxZoom: maxZoom,
+    minZoom: minZoom
   });
   this.tileGrid = tileGrid;
 
   this.tileUrlFunction = ol.TileUrlFunction.withTileCoordTransform(
-      function(tileCoord) {
-        if (tileCoord.z < minZoom || maxZoom < tileCoord.z) {
-          return null;
-        }
-        var n = 1 << tileCoord.z;
-        var y = -tileCoord.y - 1;
-        if (y < 0 || n <= y) {
-          return null;
-        }
-        var x = goog.math.modulo(tileCoord.x, n);
-        if (!goog.isNull(extent)) {
-          var tileExtent = tileGrid.getTileCoordExtent(
-              new ol.TileCoord(tileCoord.z, x, tileCoord.y));
-          if (!tileExtent.intersects(extent)) {
-            return null;
-          }
-        }
-        return new ol.TileCoord(tileCoord.z, x, y);
-      },
+      tileGrid.createTileCoordTransform({
+        extent: extent
+      }),
       ol.TileUrlFunction.createFromTemplates(tileJSON.tiles));
 
   if (goog.isDef(tileJSON.attribution)) {
-    var attributionExtent = goog.isNull(extent) ?
-        epsg4326Projection.getExtent() : extent;
+    var attributionExtent = goog.isDef(extent) ?
+        extent : epsg4326Projection.getExtent();
     /** @type {Object.<string, Array.<ol.TileRange>>} */
     var tileRanges = {};
     var z, zKey;

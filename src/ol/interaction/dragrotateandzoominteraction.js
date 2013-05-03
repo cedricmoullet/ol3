@@ -2,19 +2,29 @@
 
 goog.provide('ol.interaction.DragRotateAndZoom');
 
+goog.require('goog.asserts');
 goog.require('goog.math.Vec2');
-goog.require('ol.View2D');
 goog.require('ol.interaction.ConditionType');
 goog.require('ol.interaction.Drag');
+goog.require('ol.interaction.Interaction');
+goog.require('ol.interaction.condition');
+
+
+/**
+ * @define {number} Animation duration.
+ */
+ol.interaction.DRAGROTATEANDZOOM_ANIMATION_DURATION = 400;
 
 
 
 /**
  * @constructor
  * @extends {ol.interaction.Drag}
- * @param {ol.interaction.ConditionType} condition Condition.
+ * @param {ol.interaction.DragRotateAndZoomOptions=} opt_options Options.
  */
-ol.interaction.DragRotateAndZoom = function(condition) {
+ol.interaction.DragRotateAndZoom = function(opt_options) {
+
+  var options = goog.isDef(opt_options) ? opt_options : {};
 
   goog.base(this);
 
@@ -22,19 +32,26 @@ ol.interaction.DragRotateAndZoom = function(condition) {
    * @private
    * @type {ol.interaction.ConditionType}
    */
-  this.condition_ = condition;
+  this.condition_ = goog.isDef(options.condition) ?
+      options.condition : ol.interaction.condition.shiftKeyOnly;
 
   /**
    * @private
    * @type {number|undefined}
    */
-  this.lastAngle_;
+  this.lastAngle_ = undefined;
 
   /**
    * @private
    * @type {number|undefined}
    */
-  this.lastMagnitude_;
+  this.lastMagnitude_ = undefined;
+
+  /**
+   * @private
+   * @type {number}
+   */
+  this.lastScaleDelta_ = 0;
 
 };
 goog.inherits(ol.interaction.DragRotateAndZoom, ol.interaction.Drag);
@@ -54,21 +71,40 @@ ol.interaction.DragRotateAndZoom.prototype.handleDrag =
   var theta = Math.atan2(delta.y, delta.x);
   var magnitude = delta.magnitude();
   // FIXME works for View2D only
-  var view = map.getView();
-  goog.asserts.assert(view instanceof ol.View2D);
+  var view = map.getView().getView2D();
   map.requestRenderFrame();
-  // FIXME the calls to map.rotate and map.zoomToResolution should use
-  // map.withFrozenRendering but an assertion fails :-(
   if (goog.isDef(this.lastAngle_)) {
     var angleDelta = theta - this.lastAngle_;
-    view.rotate(map, view.getRotation() - angleDelta);
+    ol.interaction.Interaction.rotateWithoutConstraints(
+        map, view, view.getRotation() - angleDelta);
   }
   this.lastAngle_ = theta;
   if (goog.isDef(this.lastMagnitude_)) {
     var resolution = this.lastMagnitude_ * (view.getResolution() / magnitude);
-    view.zoom(map, resolution);
+    ol.interaction.Interaction.zoomWithoutConstraints(map, view, resolution);
+  }
+  if (goog.isDef(this.lastMagnitude_)) {
+    this.lastScaleDelta_ = this.lastMagnitude_ / magnitude;
   }
   this.lastMagnitude_ = magnitude;
+};
+
+
+/**
+ * @inheritDoc
+ */
+ol.interaction.DragRotateAndZoom.prototype.handleDragEnd =
+    function(mapBrowserEvent) {
+  var map = mapBrowserEvent.map;
+  var view = map.getView().getView2D();
+  var direction = this.lastScaleDelta_ - 1;
+  map.withFrozenRendering(function() {
+    ol.interaction.Interaction.rotate(map, view, view.getRotation());
+    ol.interaction.Interaction.zoom(map, view, view.getResolution(), undefined,
+        ol.interaction.DRAGROTATEANDZOOM_ANIMATION_DURATION, direction);
+  });
+  this.lastScaleDelta_ = 0;
+  return true;
 };
 
 

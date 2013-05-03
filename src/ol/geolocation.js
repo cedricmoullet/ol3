@@ -4,6 +4,7 @@
 goog.provide('ol.Geolocation');
 goog.provide('ol.GeolocationProperty');
 
+goog.require('goog.events');
 goog.require('goog.functions');
 goog.require('goog.math');
 goog.require('ol.Coordinate');
@@ -32,10 +33,13 @@ ol.GeolocationProperty = {
 /**
  * @constructor
  * @extends {ol.Object}
+ * @param {ol.GeolocationOptions=} opt_options Options.
  */
-ol.Geolocation = function() {
+ol.Geolocation = function(opt_options) {
 
   goog.base(this);
+
+  var options = goog.isDef(opt_options) ? opt_options : {};
 
   /**
    * The unprojected (EPSG:4326) device position.
@@ -48,9 +52,7 @@ ol.Geolocation = function() {
    * @private
    * @type {number|undefined}
    */
-  this.watchId_;
-
-  this.setTracking(false);
+  this.watchId_ = undefined;
 
   goog.events.listen(
       this, ol.Object.getChangedEventType(ol.GeolocationProperty.PROJECTION),
@@ -58,6 +60,17 @@ ol.Geolocation = function() {
   goog.events.listen(
       this, ol.Object.getChangedEventType(ol.GeolocationProperty.TRACKING),
       this.handleTrackingChanged_, false, this);
+
+  if (goog.isDef(options.projection)) {
+    this.setProjection(ol.projection.get(options.projection));
+  }
+  if (goog.isDef(options.trackingOptions)) {
+    this.setTrackingOptions(options.trackingOptions);
+  }
+  if (goog.isDef(options.tracking)) {
+    this.setTracking(options.tracking);
+  }
+
 };
 goog.inherits(ol.Geolocation, ol.Object);
 
@@ -80,10 +93,8 @@ ol.Geolocation.prototype.handleProjectionChanged_ = function() {
     this.transformFn_ = ol.projection.getTransformFromProjections(
         ol.projection.get('EPSG:4326'), projection);
     if (!goog.isNull(this.position_)) {
-      var vertex = [this.position_.x, this.position_.y];
-      vertex = this.transformFn_(vertex, vertex, 2);
-      this.set(ol.GeolocationProperty.POSITION,
-          new ol.Coordinate(vertex[0], vertex[1]));
+      this.set(
+          ol.GeolocationProperty.POSITION, this.transformFn_(this.position_));
     }
   }
 };
@@ -96,12 +107,12 @@ ol.Geolocation.prototype.handleTrackingChanged_ = function() {
   if (ol.Geolocation.SUPPORTED) {
     var tracking = this.getTracking();
     if (tracking && !goog.isDef(this.watchId_)) {
-      this.watchId_ = navigator.geolocation.watchPosition(
+      this.watchId_ = goog.global.navigator.geolocation.watchPosition(
           goog.bind(this.positionChange_, this),
           goog.bind(this.positionError_, this),
           this.getTrackingOptions());
     } else if (!tracking && goog.isDef(this.watchId_)) {
-      navigator.geolocation.clearWatch(this.watchId_);
+      goog.global.navigator.geolocation.clearWatch(this.watchId_);
       this.watchId_ = undefined;
     }
   }
@@ -113,7 +124,7 @@ ol.Geolocation.prototype.handleTrackingChanged_ = function() {
  * @const
  * @type {boolean}
  */
-ol.Geolocation.SUPPORTED = 'geolocation' in navigator;
+ol.Geolocation.SUPPORTED = 'geolocation' in goog.global.navigator;
 
 
 /**
@@ -130,11 +141,13 @@ ol.Geolocation.prototype.positionChange_ = function(position) {
       undefined : coords.altitudeAccuracy);
   this.set(ol.GeolocationProperty.HEADING, goog.isNull(coords.heading) ?
       undefined : goog.math.toRadians(coords.heading));
-  this.position_ = new ol.Coordinate(coords.longitude, coords.latitude);
-  var vertex = [coords.longitude, coords.latitude];
-  vertex = this.transformFn_(vertex, vertex, 2);
-  this.set(ol.GeolocationProperty.POSITION,
-      new ol.Coordinate(vertex[0], vertex[1]));
+  if (goog.isNull(this.position_)) {
+    this.position_ = [coords.longitude, coords.latitude];
+  } else {
+    this.position_[0] = coords.longitude;
+    this.position_[1] = coords.latitude;
+  }
+  this.set(ol.GeolocationProperty.POSITION, this.transformFn_(this.position_));
   this.set(ol.GeolocationProperty.SPEED,
       goog.isNull(coords.speed) ? undefined : coords.speed);
 };
@@ -255,7 +268,7 @@ goog.exportProperty(
 
 
 /**
- * @return {GeolocationPositionOptions|undefined} tracking options.
+ * @return {GeolocationPositionOptions|undefined} Tracking options.
  */
 ol.Geolocation.prototype.getTrackingOptions = function() {
   return /** @type {GeolocationPositionOptions} */ (

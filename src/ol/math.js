@@ -1,5 +1,7 @@
 goog.provide('ol.math');
 
+goog.require('goog.asserts');
+
 
 /**
  * @param {number} x X.
@@ -26,6 +28,16 @@ ol.math.coth = function(x) {
  */
 ol.math.csch = function(x) {
   return 2 / (Math.exp(x) - Math.exp(-x));
+};
+
+
+/**
+ * @param {number} x X.
+ * @return {number} The smallest power of two greater than or equal to x.
+ */
+ol.math.roundUpToPowerOfTwo = function(x) {
+  goog.asserts.assert(0 < x);
+  return Math.pow(2, Math.ceil(Math.log(x) / Math.LN2));
 };
 
 

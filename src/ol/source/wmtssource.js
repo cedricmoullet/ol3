@@ -1,10 +1,15 @@
 goog.provide('ol.source.WMTS');
 goog.provide('ol.source.WMTSRequestEncoding');
 
-goog.require('ol.Attribution');
+goog.require('goog.array');
+goog.require('goog.asserts');
+goog.require('goog.math');
+goog.require('goog.object');
+goog.require('goog.uri.utils');
 goog.require('ol.TileCoord');
 goog.require('ol.TileUrlFunction');
 goog.require('ol.TileUrlFunctionType');
+goog.require('ol.extent');
 goog.require('ol.projection');
 goog.require('ol.source.ImageTileSource');
 goog.require('ol.tilegrid.WMTS');
@@ -23,32 +28,30 @@ ol.source.WMTSRequestEncoding = {
 /**
  * @constructor
  * @extends {ol.source.ImageTileSource}
- * @param {ol.source.WMTSOptions} wmtsOptions WMTS options.
+ * @param {ol.source.WMTSOptions} options WMTS options.
  */
-ol.source.WMTS = function(wmtsOptions) {
+ol.source.WMTS = function(options) {
 
   // TODO: add support for TileMatrixLimits
 
-  var version = goog.isDef(wmtsOptions.version) ?
-      wmtsOptions.version : '1.0.0';
-  var format = goog.isDef(wmtsOptions.format) ?
-      wmtsOptions.format : 'image/jpeg';
-  var dimensions = wmtsOptions.dimensions || {};
+  var version = goog.isDef(options.version) ? options.version : '1.0.0';
+  var format = goog.isDef(options.format) ? options.format : 'image/jpeg';
+  var dimensions = options.dimensions || {};
 
-  // FIXME: should we guess this requestEncoding from wmtsOptions.url(s)
+  // FIXME: should we guess this requestEncoding from options.url(s)
   //        structure? that would mean KVP only if a template is not provided.
-  var requestEncoding = goog.isDef(wmtsOptions.requestEncoding) ?
-      wmtsOptions.requestEncoding : ol.source.WMTSRequestEncoding.KVP;
+  var requestEncoding = goog.isDef(options.requestEncoding) ?
+      options.requestEncoding : ol.source.WMTSRequestEncoding.KVP;
 
   // FIXME: should we create a default tileGrid?
   // we could issue a getCapabilities xhr to retrieve missing configuration
-  var tileGrid = wmtsOptions.tileGrid;
+  var tileGrid = options.tileGrid;
 
   var context = {
-    'Layer': wmtsOptions.layer,
-    'style': wmtsOptions.style,
-    'Style': wmtsOptions.style,
-    'TileMatrixSet': wmtsOptions.matrixSet
+    'Layer': options.layer,
+    'style': options.style,
+    'Style': options.style,
+    'TileMatrixSet': options.matrixSet
   };
   goog.object.extend(context, dimensions);
   var kvpParams;
@@ -70,33 +73,38 @@ ol.source.WMTS = function(wmtsOptions) {
    * @return {ol.TileUrlFunctionType} Tile URL function.
    */
   function createFromWMTSTemplate(template) {
-    return function(tileCoord) {
-      if (goog.isNull(tileCoord)) {
-        return undefined;
-      } else {
-        var localContext = {
-          'TileMatrix': tileGrid.getMatrixId(tileCoord.z),
-          'TileCol': tileCoord.x,
-          'TileRow': tileCoord.y
-        };
-        if (requestEncoding != ol.source.WMTSRequestEncoding.KVP) {
-          goog.object.extend(localContext, context);
-        }
-        var url = template;
-        for (var key in localContext) {
-          // FIXME: should we filter properties with hasOwnProperty?
-          url = url.replace('{' + key + '}', localContext[key])
-              .replace('%7B' + key + '%7D', localContext[key]);
-        }
-        return url;
-      }
-    };
+    return (
+        /**
+         * @param {ol.TileCoord} tileCoord Tile coordinate.
+         * @return {string|undefined} Tile URL.
+         */
+        function(tileCoord) {
+          if (goog.isNull(tileCoord)) {
+            return undefined;
+          } else {
+            var localContext = {
+              'TileMatrix': tileGrid.getMatrixId(tileCoord.z),
+              'TileCol': tileCoord.x,
+              'TileRow': tileCoord.y
+            };
+            if (requestEncoding != ol.source.WMTSRequestEncoding.KVP) {
+              goog.object.extend(localContext, context);
+            }
+            var url = template;
+            for (var key in localContext) {
+              // FIXME: should we filter properties with hasOwnProperty?
+              url = url.replace('{' + key + '}', localContext[key])
+                  .replace('%7B' + key + '%7D', localContext[key]);
+            }
+            return url;
+          }
+        });
   }
 
   var tileUrlFunction = ol.TileUrlFunction.nullTileUrlFunction;
-  var urls = wmtsOptions.urls;
-  if (!goog.isDef(urls) && goog.isDef(wmtsOptions.url)) {
-    urls = ol.TileUrlFunction.expandUrl(wmtsOptions.url);
+  var urls = options.urls;
+  if (!goog.isDef(urls) && goog.isDef(options.url)) {
+    urls = ol.TileUrlFunction.expandUrl(options.url);
   }
   if (goog.isDef(urls)) {
     tileUrlFunction = ol.TileUrlFunction.createFromTileUrlFunctions(
@@ -111,8 +119,12 @@ ol.source.WMTS = function(wmtsOptions) {
         }));
   }
 
+  var tmpExtent = ol.extent.createEmpty();
+  var tmpTileCoord = new ol.TileCoord(0, 0, 0);
   tileUrlFunction = ol.TileUrlFunction.withTileCoordTransform(
-      function(tileCoord, tileGrid, projection) {
+      function(tileCoord, projection) {
+        var tileGrid = this.getTileGrid();
+        goog.asserts.assert(!goog.isNull(tileGrid));
         if (tileGrid.getResolutions().length <= tileCoord.z) {
           return null;
         }
@@ -120,20 +132,21 @@ ol.source.WMTS = function(wmtsOptions) {
         var y = -tileCoord.y - 1;
         var tileExtent = tileGrid.getTileCoordExtent(tileCoord);
         var projectionExtent = projection.getExtent();
-        var extent = goog.isDef(wmtsOptions.extent) ?
-            wmtsOptions.extent : projectionExtent;
+        var extent = goog.isDef(options.extent) ?
+            options.extent : projectionExtent;
 
         if (!goog.isNull(extent) && projection.isGlobal() &&
-            extent.minX === projectionExtent.minX &&
-            extent.maxX === projectionExtent.maxX) {
+            extent[0] === projectionExtent[0] &&
+            extent[1] === projectionExtent[1]) {
           var numCols = Math.ceil(
-              (extent.maxX - extent.minX) /
-              (tileExtent.maxX - tileExtent.minX));
+              (extent[1] - extent[0]) / (tileExtent[1] - tileExtent[0]));
           x = goog.math.modulo(x, numCols);
-          tileExtent = tileGrid.getTileCoordExtent(
-              new ol.TileCoord(tileCoord.z, x, tileCoord.y));
+          tmpTileCoord.z = tileCoord.z;
+          tmpTileCoord.x = x;
+          tmpTileCoord.y = tileCoord.y;
+          tileExtent = tileGrid.getTileCoordExtent(tmpTileCoord, tmpExtent);
         }
-        if (!tileExtent.intersects(extent)) {
+        if (!ol.extent.intersects(tileExtent, extent)) {
           return null;
         }
         return new ol.TileCoord(tileCoord.z, x, y);
@@ -141,10 +154,10 @@ ol.source.WMTS = function(wmtsOptions) {
       tileUrlFunction);
 
   goog.base(this, {
-    attributions: wmtsOptions.attributions,
-    crossOrigin: wmtsOptions.crossOrigin,
-    extent: wmtsOptions.extent,
-    projection: wmtsOptions.projection,
+    attributions: options.attributions,
+    crossOrigin: options.crossOrigin,
+    extent: options.extent,
+    projection: options.projection,
     tileGrid: tileGrid,
     tileUrlFunction: tileUrlFunction
   });
@@ -231,7 +244,7 @@ ol.source.WMTS.optionsFromCapabilities = function(wmtsCap, layer) {
       goog.asserts.assert(urls.length > 0);
       break;
     default:
-      goog.asserts.assert(false);
+      goog.asserts.fail();
   }
 
   return {

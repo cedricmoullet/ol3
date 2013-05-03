@@ -1,11 +1,17 @@
 goog.provide('ol.renderer.canvas.VectorLayer');
 
+goog.require('goog.dom');
+goog.require('goog.dom.TagName');
+goog.require('goog.events');
+goog.require('goog.events.EventType');
+goog.require('goog.object');
 goog.require('goog.vec.Mat4');
-goog.require('ol.Extent');
+goog.require('ol.Pixel');
 goog.require('ol.Size');
 goog.require('ol.TileCache');
 goog.require('ol.TileCoord');
 goog.require('ol.ViewHint');
+goog.require('ol.extent');
 goog.require('ol.filter.Extent');
 goog.require('ol.filter.Geometry');
 goog.require('ol.filter.Logical');
@@ -183,6 +189,52 @@ ol.renderer.canvas.VectorLayer.prototype.getTransform = function() {
 
 
 /**
+ * @param {ol.Pixel} pixel Pixel coordinate relative to the map viewport.
+ * @return {Array.<ol.Feature>} Features at the pixel location.
+ */
+ol.renderer.canvas.VectorLayer.prototype.getFeatureInfoForPixel =
+    function(pixel) {
+  // TODO adjust pixel tolerance for applied styles
+  var minPixel = new ol.Pixel(pixel.x - 1, pixel.y - 1);
+  var maxPixel = new ol.Pixel(pixel.x + 1, pixel.y + 1);
+  var map = this.getMap();
+
+  var locationMin = map.getCoordinateFromPixel(minPixel);
+  var locationMax = map.getCoordinateFromPixel(maxPixel);
+  var locationBbox = ol.extent.boundingExtent([locationMin, locationMax]);
+  var filter = new ol.filter.Extent(locationBbox);
+  // TODO do a real intersect against the filtered result for exact matches
+  var candidates = this.getLayer().getFeatures(filter);
+
+  var location = map.getCoordinateFromPixel(pixel);
+  // TODO adjust tolerance for stroke width or use configurable tolerance
+  var tolerance = map.getView().getView2D().getResolution() * 3;
+  var result = [];
+  var candidate, geom;
+  for (var i = 0, ii = candidates.length; i < ii; ++i) {
+    candidate = candidates[i];
+    geom = candidate.getGeometry();
+    if (goog.isFunction(geom.containsCoordinate)) {
+      // For polygons, check if the pixel location is inside the polygon
+      if (geom.containsCoordinate(location)) {
+        result.push(candidate);
+      }
+    } else if (goog.isFunction(geom.distanceFromCoordinate)) {
+      // For lines, check if the ditance to the pixel location is within the
+      // tolerance threshold
+      if (geom.distanceFromCoordinate(location) < tolerance) {
+        result.push(candidate);
+      }
+    } else {
+      // For points, the bbox filter is all we need
+      result.push(candidate);
+    }
+  }
+  return result;
+};
+
+
+/**
  * @param {goog.events.Event} event Layer change event.
  * @private
  */
@@ -224,7 +276,7 @@ ol.renderer.canvas.VectorLayer.prototype.renderFrame =
           extent, tileResolution),
       tileRangeExtent = tileGrid.getTileRangeExtent(z, tileRange),
       tileSize = tileGrid.getTileSize(z),
-      sketchOrigin = tileRangeExtent.getTopLeft(),
+      sketchOrigin = ol.extent.getTopLeft(tileRangeExtent),
       transform = this.transform_;
 
   goog.vec.Mat4.makeIdentity(transform);
@@ -236,8 +288,8 @@ ol.renderer.canvas.VectorLayer.prototype.renderFrame =
       tileResolution / resolution, tileResolution / resolution, 1);
   goog.vec.Mat4.rotateZ(transform, view2DState.rotation);
   goog.vec.Mat4.translate(transform,
-      (sketchOrigin.x - view2DState.center.x) / tileResolution,
-      (view2DState.center.y - sketchOrigin.y) / tileResolution,
+      (sketchOrigin[0] - view2DState.center[0]) / tileResolution,
+      (view2DState.center[1] - sketchOrigin[1]) / tileResolution,
       0);
 
   /**
@@ -282,8 +334,8 @@ ol.renderer.canvas.VectorLayer.prototype.renderFrame =
       -1 / tileResolution,
       1);
   goog.vec.Mat4.translate(sketchTransform,
-      -(sketchOrigin.x + halfWidth * tileResolution),
-      -(sketchOrigin.y - halfHeight * tileResolution),
+      -(sketchOrigin[0] + halfWidth * tileResolution),
+      -(sketchOrigin[1] - halfHeight * tileResolution),
       0);
 
   // clear/resize sketch canvas
@@ -319,10 +371,10 @@ ol.renderer.canvas.VectorLayer.prototype.renderFrame =
         tilesToRender[key] = tileCoord;
       } else if (!frameState.viewHints[ol.ViewHint.ANIMATING]) {
         tileExtent = tileGrid.getTileCoordExtent(tileCoord);
-        tileExtent.minX -= tileGutter;
-        tileExtent.minY -= tileGutter;
-        tileExtent.maxX += tileGutter;
-        tileExtent.maxY += tileGutter;
+        tileExtent[0] -= tileGutter;
+        tileExtent[1] += tileGutter;
+        tileExtent[2] -= tileGutter;
+        tileExtent[3] += tileGutter;
         extentFilter = new ol.filter.Extent(tileExtent);
         for (i = 0; i < numFilters; ++i) {
           geomFilter = filters[i];
@@ -341,6 +393,7 @@ ol.renderer.canvas.VectorLayer.prototype.renderFrame =
     }
   }
 
+  renderByGeometryType:
   for (type in featuresToRender) {
     groups = layer.groupFeaturesBySymbolizerLiteral(featuresToRender[type]);
     numGroups = groups.length;
@@ -350,12 +403,13 @@ ol.renderer.canvas.VectorLayer.prototype.renderFrame =
           /** @type {ol.geom.GeometryType} */ (type),
           group[0], group[1]);
       if (deferred) {
-        break;
+        break renderByGeometryType;
       }
     }
-    if (!deferred) {
-      goog.object.extend(tilesToRender, tilesOnSketchCanvas);
-    }
+  }
+
+  if (!deferred) {
+    goog.object.extend(tilesToRender, tilesOnSketchCanvas);
   }
 
   for (key in tilesToRender) {

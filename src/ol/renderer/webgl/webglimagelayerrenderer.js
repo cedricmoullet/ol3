@@ -1,6 +1,10 @@
 goog.provide('ol.renderer.webgl.ImageLayer');
 
+goog.require('goog.asserts');
+goog.require('goog.events');
+goog.require('goog.events.EventType');
 goog.require('goog.vec.Mat4');
+goog.require('goog.webgl');
 goog.require('ol.Coordinate');
 goog.require('ol.Extent');
 goog.require('ol.Image');
@@ -28,32 +32,13 @@ ol.renderer.webgl.ImageLayer = function(mapRenderer, imageLayer) {
    */
   this.image_ = null;
 
-  /**
-   * The last rendered texture.
-   * @private
-   * @type {WebGLTexture}
-   */
-  this.texture_ = null;
-
-  /**
-   * @private
-   * @type {!goog.vec.Mat4.Number}
-   */
-  this.texCoordMatrix_ = goog.vec.Mat4.createNumberIdentity();
-
-  /**
-   * @private
-   * @type {!goog.vec.Mat4.Number}
-   */
-  this.projectionMatrix_ = goog.vec.Mat4.createNumber();
-
 };
 goog.inherits(ol.renderer.webgl.ImageLayer, ol.renderer.webgl.Layer);
 
 
 /**
- * @private
  * @param {ol.Image} image Image.
+ * @private
  * @return {WebGLTexture} Texture.
  */
 ol.renderer.webgl.ImageLayer.prototype.createTexture_ = function(image) {
@@ -63,7 +48,7 @@ ol.renderer.webgl.ImageLayer.prototype.createTexture_ = function(image) {
   // http://learningwebgl.com/blog/?p=2101
 
   var imageElement = image.getImageElement(this);
-  var gl = this.getMapRenderer().getGL();
+  var gl = this.getWebGLMapRenderer().getGL();
 
   var texture = gl.createTexture();
 
@@ -87,43 +72,7 @@ ol.renderer.webgl.ImageLayer.prototype.createTexture_ = function(image) {
 
 
 /**
- * @inheritDoc
- */
-ol.renderer.webgl.ImageLayer.prototype.disposeInternal = function() {
-  var mapRenderer = this.getMapRenderer();
-  var gl = mapRenderer.getGL();
-  if (!gl.isContextLost()) {
-    gl.deleteTexture(this.texture_);
-  }
-  goog.base(this, 'disposeInternal');
-};
-
-
-/**
- * @inheritDoc
- */
-ol.renderer.webgl.ImageLayer.prototype.getTexCoordMatrix = function() {
-  return this.texCoordMatrix_;
-};
-
-
-/**
- * @inheritDoc
- */
-ol.renderer.webgl.ImageLayer.prototype.getTexture = function() {
-  return this.texture_;
-};
-
-
-/**
- * @inheritDoc
- */
-ol.renderer.webgl.ImageLayer.prototype.getProjectionMatrix = function() {
-  return this.projectionMatrix_;
-};
-
-
-/**
+ * @protected
  * @return {ol.layer.ImageLayer} Tile layer.
  */
 ol.renderer.webgl.ImageLayer.prototype.getImageLayer = function() {
@@ -134,18 +83,10 @@ ol.renderer.webgl.ImageLayer.prototype.getImageLayer = function() {
 /**
  * @inheritDoc
  */
-ol.renderer.webgl.ImageLayer.prototype.handleWebGLContextLost = function() {
-  this.texture_ = null;
-};
-
-
-/**
- * @inheritDoc
- */
 ol.renderer.webgl.ImageLayer.prototype.renderFrame =
     function(frameState, layerState) {
 
-  var gl = this.getMapRenderer().getGL();
+  var gl = this.getWebGLMapRenderer().getGL();
 
   var view2DState = frameState.view2DState;
   var viewCenter = view2DState.center;
@@ -153,7 +94,7 @@ ol.renderer.webgl.ImageLayer.prototype.renderFrame =
   var viewRotation = view2DState.rotation;
 
   var image = this.image_;
-  var texture = this.texture_;
+  var texture = this.texture;
   var imageLayer = this.getImageLayer();
   var imageSource = imageLayer.getImageSource();
 
@@ -171,13 +112,13 @@ ol.renderer.webgl.ImageLayer.prototype.renderFrame =
       } else if (imageState == ol.ImageState.LOADED) {
         image = image_;
         texture = this.createTexture_(image_);
-        if (!goog.isNull(this.texture_)) {
+        if (!goog.isNull(this.texture)) {
           frameState.postRenderFunctions.push(
               goog.partial(function(gl, texture) {
                 if (!gl.isContextLost()) {
                   gl.deleteTexture(texture);
                 }
-              }, gl, this.texture_));
+              }, gl, this.texture));
         }
       }
     }
@@ -186,33 +127,34 @@ ol.renderer.webgl.ImageLayer.prototype.renderFrame =
   if (!goog.isNull(image)) {
     goog.asserts.assert(!goog.isNull(texture));
 
-    var canvas = this.getMapRenderer().getCanvas();
+    var canvas = this.getWebGLMapRenderer().getCanvas();
 
     this.updateProjectionMatrix_(canvas.width, canvas.height,
         viewCenter, viewResolution, viewRotation, image.getExtent());
 
     // Translate and scale to flip the Y coord.
-    var texCoordMatrix = this.texCoordMatrix_;
+    var texCoordMatrix = this.texCoordMatrix;
     goog.vec.Mat4.makeIdentity(texCoordMatrix);
     goog.vec.Mat4.scale(texCoordMatrix, 1, -1, 1);
     goog.vec.Mat4.translate(texCoordMatrix, 0, -1, 0);
 
     this.image_ = image;
-    this.texture_ = texture;
+    this.texture = texture;
 
     this.updateAttributions(frameState.attributions, image.getAttributions());
+    this.updateLogos(frameState, imageSource);
   }
 };
 
 
 /**
- * @private
  * @param {number} canvasWidth Canvas width.
  * @param {number} canvasHeight Canvas height.
  * @param {ol.Coordinate} viewCenter View center.
  * @param {number} viewResolution View resolution.
  * @param {number} viewRotation View rotation.
  * @param {ol.Extent} imageExtent Image extent.
+ * @private
  */
 ol.renderer.webgl.ImageLayer.prototype.updateProjectionMatrix_ =
     function(canvasWidth, canvasHeight, viewCenter,
@@ -221,17 +163,19 @@ ol.renderer.webgl.ImageLayer.prototype.updateProjectionMatrix_ =
   var canvasExtentWidth = canvasWidth * viewResolution;
   var canvasExtentHeight = canvasHeight * viewResolution;
 
-  var projectionMatrix = this.projectionMatrix_;
+  var projectionMatrix = this.projectionMatrix;
   goog.vec.Mat4.makeIdentity(projectionMatrix);
   goog.vec.Mat4.scale(projectionMatrix,
       2 / canvasExtentWidth, 2 / canvasExtentHeight, 1);
   goog.vec.Mat4.rotateZ(projectionMatrix, -viewRotation);
   goog.vec.Mat4.translate(projectionMatrix,
-      imageExtent.minX - viewCenter.x,
-      imageExtent.minY - viewCenter.y,
+      imageExtent[0] - viewCenter[0],
+      imageExtent[2] - viewCenter[1],
       0);
   goog.vec.Mat4.scale(projectionMatrix,
-      imageExtent.getWidth() / 2, imageExtent.getHeight() / 2, 1);
+      (imageExtent[1] - imageExtent[0]) / 2,
+      (imageExtent[3] - imageExtent[2]) / 2,
+      1);
   goog.vec.Mat4.translate(projectionMatrix, 1, 1, 0);
 
 };

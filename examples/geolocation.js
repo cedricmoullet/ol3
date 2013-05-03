@@ -1,23 +1,22 @@
-goog.require('ol.AnchoredElement');
-goog.require('ol.Coordinate');
 goog.require('ol.Geolocation');
 goog.require('ol.Map');
+goog.require('ol.Overlay');
 goog.require('ol.RendererHints');
 goog.require('ol.View2D');
 goog.require('ol.layer.TileLayer');
-goog.require('ol.source.OpenStreetMap');
+goog.require('ol.source.OSM');
 
 
 var map = new ol.Map({
   layers: [
     new ol.layer.TileLayer({
-      source: new ol.source.OpenStreetMap()
+      source: new ol.source.OSM()
     })
   ],
   renderers: ol.RendererHints.createFromQueryData(),
   target: 'map',
   view: new ol.View2D({
-    center: new ol.Coordinate(0, 0),
+    center: [0, 0],
     zoom: 2
   })
 });
@@ -25,7 +24,7 @@ var map = new ol.Map({
 var geolocation = new ol.Geolocation();
 geolocation.bindTo('projection', map.getView());
 
-var marker = new ol.AnchoredElement({
+var marker = new ol.Overlay({
   map: map,
   element: /** @type {Element} */ ($('<i/>').addClass('icon-flag').get(0))
 });

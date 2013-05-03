@@ -1,0 +1,30 @@
+{
+    "opts": {
+        "recurse": true,
+        "template": "doc/template",
+        "tutorials": "doc/tutorials"
+    },
+    "tags": {
+        "allowUnknownTags": true
+    },
+    "source": {
+        "includePattern": ".+\\.js(doc)?$",
+        "excludePattern": "(^|\\/|\\\\)_"
+    },
+    "plugins": [
+        "plugins/markdown",
+        "doc/plugins/inheritdoc",
+        "doc/plugins/exports"
+    ],
+    "markdown": {
+        "parser": "gfm"
+    },
+    "templates": {
+        "cleverLinks": false,
+        "monospaceLinks": false,
+        "default": {
+            "outputSourceFiles": true
+        }
+    },
+    "jsVersion": 180
+}

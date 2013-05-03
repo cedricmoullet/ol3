@@ -2,6 +2,10 @@ goog.provide('ol.renderer.canvas.VectorRenderer');
 
 
 goog.require('goog.asserts');
+goog.require('goog.dom');
+goog.require('goog.dom.TagName');
+goog.require('goog.events');
+goog.require('goog.events.EventType');
 goog.require('goog.vec.Mat4');
 goog.require('ol.Feature');
 goog.require('ol.Pixel');
@@ -379,7 +383,6 @@ ol.renderer.canvas.VectorRenderer.renderIcon = function(icon, opt_callback) {
             opt_callback),
         false, ol.renderer.canvas.VectorRenderer.renderIcon);
     image.setAttribute('src', url);
-    ol.renderer.canvas.VectorRenderer.icons_[url] = image;
   } else if (!goog.isNull(image)) {
     var width = icon.width,
         height = icon.height;
@@ -436,4 +439,3 @@ ol.renderer.canvas.VectorRenderer.handleIconLoad_ =
     opt_callback();
   }
 };
-

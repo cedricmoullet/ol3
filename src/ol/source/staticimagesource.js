@@ -2,6 +2,7 @@ goog.provide('ol.source.StaticImage');
 
 goog.require('ol.Image');
 goog.require('ol.ImageUrlFunctionType');
+goog.require('ol.extent');
 goog.require('ol.projection');
 goog.require('ol.source.ImageSource');
 
@@ -10,7 +11,7 @@ goog.require('ol.source.ImageSource');
 /**
  * @constructor
  * @extends {ol.source.ImageSource}
- * @param {ol.source.StaticImageOptions} options Options.
+ * @param {ol.source.StaticImageOptions} options Static image options.
  */
 ol.source.StaticImage = function(options) {
 
@@ -19,7 +20,7 @@ ol.source.StaticImage = function(options) {
 
   var imageExtent = options.imageExtent;
   var imageSize = options.imageSize;
-  var imageResolution = imageExtent.getHeight() / imageSize.height;
+  var imageResolution = (imageExtent[3] - imageExtent[2]) / imageSize.height;
   var projection = ol.projection.get(options.projection);
 
   goog.base(this, {
@@ -47,7 +48,7 @@ goog.inherits(ol.source.StaticImage, ol.source.ImageSource);
  */
 ol.source.StaticImage.prototype.getImage =
     function(extent, resolution, projection) {
-  if (extent.intersects(this.image_.getExtent())) {
+  if (ol.extent.intersects(extent, this.image_.getExtent())) {
     return this.image_;
   }
   return null;
@@ -59,7 +60,14 @@ ol.source.StaticImage.prototype.getImage =
  * @return {ol.ImageUrlFunctionType} Function.
  */
 ol.source.StaticImage.createImageFunction = function(url) {
-  return function(extent, size, projection) {
-    return url;
-  };
+  return (
+      /**
+       * @param {ol.Extent} extent Extent.
+       * @param {ol.Size} size Size.
+       * @param {ol.Projection} projection Projection.
+       * @return {string|undefined} URL.
+       */
+      function(extent, size, projection) {
+        return url;
+      });
 };

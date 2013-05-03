@@ -2,12 +2,12 @@
 goog.provide('ol.interaction.TouchPan');
 
 goog.require('goog.asserts');
-goog.require('ol.Coordinate');
 goog.require('ol.Kinetic');
 goog.require('ol.Pixel');
 goog.require('ol.PreRenderFunction');
 goog.require('ol.View');
 goog.require('ol.ViewHint');
+goog.require('ol.coordinate');
 goog.require('ol.interaction.Touch');
 
 
@@ -15,17 +15,19 @@ goog.require('ol.interaction.Touch');
 /**
  * @constructor
  * @extends {ol.interaction.Touch}
- * @param {ol.Kinetic=} opt_kinetic Kinetic object.
+ * @param {ol.interaction.TouchPanOptions=} opt_options Options.
  */
-ol.interaction.TouchPan = function(opt_kinetic) {
+ol.interaction.TouchPan = function(opt_options) {
 
   goog.base(this);
+
+  var options = goog.isDef(opt_options) ? opt_options : {};
 
   /**
    * @private
    * @type {ol.Kinetic|undefined}
    */
-  this.kinetic_ = opt_kinetic;
+  this.kinetic_ = options.kinetic;
 
   /**
    * @private
@@ -37,6 +39,12 @@ ol.interaction.TouchPan = function(opt_kinetic) {
    * @type {ol.Pixel}
    */
   this.lastCentroid = null;
+
+  /**
+   * @private
+   * @type {boolean}
+   */
+  this.noKinetic_ = false;
 
 };
 goog.inherits(ol.interaction.TouchPan, ol.interaction.Touch);
@@ -54,11 +62,13 @@ ol.interaction.TouchPan.prototype.handleTouchMove = function(mapBrowserEvent) {
     }
     var deltaX = this.lastCentroid.x - centroid.x;
     var deltaY = centroid.y - this.lastCentroid.y;
-    var view = mapBrowserEvent.map.getView();
-    var center = new ol.Coordinate(deltaX, deltaY)
-      .scale(view.getResolution())
-      .rotate(view.getRotation())
-      .add(view.getCenter());
+    var map = mapBrowserEvent.map;
+    var view = map.getView();
+    var center = [deltaX, deltaY];
+    ol.coordinate.scale(center, view.getResolution());
+    ol.coordinate.rotate(center, view.getRotation());
+    ol.coordinate.add(center, view.getCenter());
+    map.requestRenderFrame();
     view.setCenter(center);
   }
   this.lastCentroid = centroid;
@@ -73,8 +83,8 @@ ol.interaction.TouchPan.prototype.handleTouchEnd =
   var map = mapBrowserEvent.map;
   var view = map.getView();
   if (this.targetTouches.length == 0) {
-    view.setHint(ol.ViewHint.INTERACTING, -1);
-    if (this.kinetic_ && this.kinetic_.end()) {
+    var interacting = view.setHint(ol.ViewHint.INTERACTING, -1);
+    if (!this.noKinetic_ && this.kinetic_ && this.kinetic_.end()) {
       var distance = this.kinetic_.getDistance();
       var angle = this.kinetic_.getAngle();
       var center = view.getCenter();
@@ -86,6 +96,8 @@ ol.interaction.TouchPan.prototype.handleTouchEnd =
           centerpx.y - distance * Math.sin(angle));
       var dest = map.getCoordinateFromPixel(destpx);
       view.setCenter(dest);
+    } else if (interacting === 0) {
+      map.requestRenderFrame();
     }
     return false;
   } else {
@@ -100,13 +112,13 @@ ol.interaction.TouchPan.prototype.handleTouchEnd =
  */
 ol.interaction.TouchPan.prototype.handleTouchStart =
     function(mapBrowserEvent) {
-  if (this.targetTouches.length >= 1) {
+  if (this.targetTouches.length > 0) {
     var map = mapBrowserEvent.map;
     var view = map.getView();
     this.lastCentroid = null;
+    map.requestRenderFrame();
     if (!goog.isNull(this.kineticPreRenderFn_) &&
         map.removePreRenderFunction(this.kineticPreRenderFn_)) {
-      map.requestRenderFrame();
       view.setCenter(mapBrowserEvent.frameState.view2DState.center);
       this.kineticPreRenderFn_ = null;
     }
@@ -114,6 +126,9 @@ ol.interaction.TouchPan.prototype.handleTouchStart =
       this.kinetic_.begin();
     }
     view.setHint(ol.ViewHint.INTERACTING, 1);
+    // No kinetic as soon as more than one fingers on the screen is
+    // detected. This is to prevent nasty pans after pinch.
+    this.noKinetic_ = this.targetTouches.length > 1;
     return true;
   } else {
     return false;

@@ -1,5 +1,7 @@
 goog.provide('ol.source.DebugTileSource');
 
+goog.require('goog.dom');
+goog.require('goog.dom.TagName');
 goog.require('ol.Size');
 goog.require('ol.Tile');
 goog.require('ol.TileCache');
@@ -82,7 +84,7 @@ ol.DebugTile_.prototype.getImage = function(opt_context) {
 /**
  * @constructor
  * @extends {ol.source.TileSource}
- * @param {ol.source.DebugTileSourceOptions} options Options.
+ * @param {ol.source.DebugTileSourceOptions} options Debug tile options.
  */
 ol.source.DebugTileSource = function(options) {
 
@@ -122,13 +124,13 @@ ol.source.DebugTileSource.prototype.expireCache = function(usedTiles) {
 /**
  * @inheritDoc
  */
-ol.source.DebugTileSource.prototype.getTile = function(tileCoord) {
-  var key = tileCoord.toString();
-  if (this.tileCache_.containsKey(key)) {
-    return /** @type {!ol.DebugTile_} */ (this.tileCache_.get(key));
+ol.source.DebugTileSource.prototype.getTile = function(z, x, y) {
+  var tileCoordKey = ol.TileCoord.getKeyZXY(z, x, y);
+  if (this.tileCache_.containsKey(tileCoordKey)) {
+    return /** @type {!ol.DebugTile_} */ (this.tileCache_.get(tileCoordKey));
   } else {
-    var tile = new ol.DebugTile_(tileCoord, this.tileGrid);
-    this.tileCache_.set(key, tile);
+    var tile = new ol.DebugTile_(new ol.TileCoord(z, x, y), this.tileGrid);
+    this.tileCache_.set(tileCoordKey, tile);
     return tile;
   }
 };

@@ -2,6 +2,7 @@ goog.provide('ol.View');
 goog.provide('ol.ViewHint');
 
 goog.require('goog.array');
+goog.require('goog.asserts');
 goog.require('ol.IView');
 goog.require('ol.Object');
 
@@ -58,9 +59,11 @@ ol.View.prototype.getView3D = goog.abstractMethod;
 /**
  * @param {ol.ViewHint} hint Hint.
  * @param {number} delta Delta.
+ * @return {number} New value.
  */
 ol.View.prototype.setHint = function(hint, delta) {
   goog.asserts.assert(0 <= hint && hint < this.hints_.length);
   this.hints_[hint] += delta;
   goog.asserts.assert(this.hints_[hint] >= 0);
+  return this.hints_[hint];
 };

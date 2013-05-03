@@ -1,17 +1,14 @@
-// FIXME cope with tile grids whose minium zoom is not zero
-
 goog.provide('ol.tilegrid.TileGrid');
 
 goog.require('goog.array');
 goog.require('goog.asserts');
 goog.require('ol.Coordinate');
-goog.require('ol.Extent');
-goog.require('ol.PixelBounds');
 goog.require('ol.Projection');
 goog.require('ol.Size');
 goog.require('ol.TileCoord');
 goog.require('ol.TileRange');
 goog.require('ol.array');
+goog.require('ol.extent');
 
 
 /**
@@ -29,40 +26,45 @@ ol.DEFAULT_MAX_ZOOM = 42;
 
 /**
  * @constructor
- * @param {ol.tilegrid.TileGridOptions} tileGridOptions Tile grid options.
+ * @param {ol.tilegrid.TileGridOptions} options Tile grid options.
  */
-ol.tilegrid.TileGrid = function(tileGridOptions) {
+ol.tilegrid.TileGrid = function(options) {
+
+  /**
+   * @protected
+   * @type {number}
+   */
+  this.minZoom = goog.isDef(options.minZoom) ? options.minZoom : 0;
 
   /**
    * @private
    * @type {!Array.<number>}
    */
-  this.resolutions_ = tileGridOptions.resolutions;
+  this.resolutions_ = options.resolutions;
   goog.asserts.assert(goog.array.isSorted(this.resolutions_, function(a, b) {
     return b - a;
   }, true));
 
   /**
-   * @private
+   * @protected
    * @type {number}
    */
-  this.numResolutions_ = this.resolutions_.length;
+  this.maxZoom = this.resolutions_.length - 1;
 
   /**
    * @private
    * @type {ol.Coordinate}
    */
-  this.origin_ = goog.isDef(tileGridOptions.origin) ?
-      tileGridOptions.origin : null;
+  this.origin_ = goog.isDef(options.origin) ? options.origin : null;
 
   /**
    * @private
    * @type {Array.<ol.Coordinate>}
    */
   this.origins_ = null;
-  if (goog.isDef(tileGridOptions.origins)) {
-    this.origins_ = tileGridOptions.origins;
-    goog.asserts.assert(this.origins_.length == this.resolutions_.length);
+  if (goog.isDef(options.origins)) {
+    this.origins_ = options.origins;
+    goog.asserts.assert(this.origins_.length == this.maxZoom + 1);
   }
   goog.asserts.assert(
       (goog.isNull(this.origin_) && !goog.isNull(this.origins_)) ||
@@ -73,17 +75,17 @@ ol.tilegrid.TileGrid = function(tileGridOptions) {
    * @type {Array.<ol.Size>}
    */
   this.tileSizes_ = null;
-  if (goog.isDef(tileGridOptions.tileSizes)) {
-    this.tileSizes_ = tileGridOptions.tileSizes;
-    goog.asserts.assert(this.tileSizes_.length == this.resolutions_.length);
+  if (goog.isDef(options.tileSizes)) {
+    this.tileSizes_ = options.tileSizes;
+    goog.asserts.assert(this.tileSizes_.length == this.maxZoom + 1);
   }
 
   /**
    * @private
    * @type {ol.Size}
    */
-  this.tileSize_ = goog.isDef(tileGridOptions.tileSize) ?
-      tileGridOptions.tileSize :
+  this.tileSize_ = goog.isDef(options.tileSize) ?
+      options.tileSize :
       goog.isNull(this.tileSizes_) ?
           new ol.Size(ol.DEFAULT_TILE_SIZE, ol.DEFAULT_TILE_SIZE) : null;
   goog.asserts.assert(
@@ -94,22 +96,58 @@ ol.tilegrid.TileGrid = function(tileGridOptions) {
 
 
 /**
+ * @private
+ * @type {ol.TileCoord}
+ */
+ol.tilegrid.TileGrid.tmpTileCoord_ = new ol.TileCoord(0, 0, 0);
+
+
+/**
+ * @param {{extent: (ol.Extent|undefined),
+ *          wrapX: (boolean|undefined)}=} opt_options Options.
+ * @return {function(ol.TileCoord, ol.Projection, ol.TileCoord=): ol.TileCoord}
+ *     Tile coordinate transform.
+ */
+ol.tilegrid.TileGrid.prototype.createTileCoordTransform = goog.abstractMethod;
+
+
+/**
  * @param {ol.TileCoord} tileCoord Tile coordinate.
  * @param {function(this: T, number, ol.TileRange): boolean} callback Callback.
  * @param {T=} opt_obj Object.
+ * @param {ol.TileRange=} opt_tileRange Temporary ol.TileRange object.
+ * @param {ol.Extent=} opt_extent Temporary ol.Extent object.
+ * @return {boolean} Callback succeeded.
  * @template T
  */
 ol.tilegrid.TileGrid.prototype.forEachTileCoordParentTileRange =
-    function(tileCoord, callback, opt_obj) {
-  var tileCoordExtent = this.getTileCoordExtent(tileCoord);
+    function(tileCoord, callback, opt_obj, opt_tileRange, opt_extent) {
+  var tileCoordExtent = this.getTileCoordExtent(tileCoord, opt_extent);
   var z = tileCoord.z - 1;
-  while (z >= 0) {
-    if (callback.call(
-        opt_obj, z, this.getTileRangeForExtentAndZ(tileCoordExtent, z))) {
-      return;
+  while (z >= this.minZoom) {
+    if (callback.call(opt_obj, z,
+        this.getTileRangeForExtentAndZ(tileCoordExtent, z, opt_tileRange))) {
+      return true;
     }
     --z;
   }
+  return false;
+};
+
+
+/**
+ * @return {number} Max zoom.
+ */
+ol.tilegrid.TileGrid.prototype.getMaxZoom = function() {
+  return this.maxZoom;
+};
+
+
+/**
+ * @return {number} Min zoom.
+ */
+ol.tilegrid.TileGrid.prototype.getMinZoom = function() {
+  return this.minZoom;
 };
 
 
@@ -122,29 +160,9 @@ ol.tilegrid.TileGrid.prototype.getOrigin = function(z) {
     return this.origin_;
   } else {
     goog.asserts.assert(!goog.isNull(this.origins_));
-    goog.asserts.assert(0 <= z && z < this.origins_.length);
+    goog.asserts.assert(this.minZoom <= z && z <= this.maxZoom);
     return this.origins_[z];
   }
-};
-
-
-/**
- * @param {ol.TileCoord} tileCoord Tile coordinate.
- * @param {number} resolution Resolution.
- * @return {ol.PixelBounds} Pixel bounds.
- */
-ol.tilegrid.TileGrid.prototype.getPixelBoundsForTileCoordAndResolution =
-    function(tileCoord, resolution) {
-  var scale = resolution / this.getResolution(tileCoord.z);
-  var tileSize = this.getTileSize(tileCoord.z);
-  tileSize = new ol.Size(tileSize.width / scale,
-                         tileSize.height / scale);
-  var minX, maxX, minY, maxY;
-  minX = Math.round(tileCoord.x * tileSize.width);
-  maxX = Math.round((tileCoord.x + 1) * tileSize.width);
-  minY = Math.round(tileCoord.y * tileSize.height);
-  maxY = Math.round((tileCoord.y + 1) * tileSize.height);
-  return new ol.PixelBounds(minX, minY, maxX, maxY);
 };
 
 
@@ -153,7 +171,7 @@ ol.tilegrid.TileGrid.prototype.getPixelBoundsForTileCoordAndResolution =
  * @return {number} Resolution.
  */
 ol.tilegrid.TileGrid.prototype.getResolution = function(z) {
-  goog.asserts.assert(0 <= z && z < this.numResolutions_);
+  goog.asserts.assert(this.minZoom <= z && z <= this.maxZoom);
   return this.resolutions_[z];
 };
 
@@ -167,45 +185,73 @@ ol.tilegrid.TileGrid.prototype.getResolutions = function() {
 
 
 /**
+ * @param {ol.TileCoord} tileCoord Tile coordinate.
+ * @param {ol.TileRange=} opt_tileRange Temporary ol.TileRange object.
+ * @param {ol.Extent=} opt_extent Temporary ol.Extent object.
+ * @return {ol.TileRange} Tile range.
+ */
+ol.tilegrid.TileGrid.prototype.getTileCoordChildTileRange =
+    function(tileCoord, opt_tileRange, opt_extent) {
+  if (tileCoord.z < this.resolutions_.length) {
+    var tileCoordExtent = this.getTileCoordExtent(tileCoord, opt_extent);
+    return this.getTileRangeForExtentAndZ(
+        tileCoordExtent, tileCoord.z + 1, opt_tileRange);
+  } else {
+    return null;
+  }
+};
+
+
+/**
  * @param {number} z Z.
  * @param {ol.TileRange} tileRange Tile range.
+ * @param {ol.Extent=} opt_extent Temporary ol.Extent object.
  * @return {ol.Extent} Extent.
  */
-ol.tilegrid.TileGrid.prototype.getTileRangeExtent = function(z, tileRange) {
+ol.tilegrid.TileGrid.prototype.getTileRangeExtent =
+    function(z, tileRange, opt_extent) {
   var origin = this.getOrigin(z);
   var resolution = this.getResolution(z);
   var tileSize = this.getTileSize(z);
-  var minX = origin.x + tileRange.minX * tileSize.width * resolution;
-  var minY = origin.y + tileRange.minY * tileSize.height * resolution;
-  var maxX = origin.x + (tileRange.maxX + 1) * tileSize.width * resolution;
-  var maxY = origin.y + (tileRange.maxY + 1) * tileSize.height * resolution;
-  return new ol.Extent(minX, minY, maxX, maxY);
+  var minX = origin[0] + tileRange.minX * tileSize.width * resolution;
+  var maxX = origin[0] + (tileRange.maxX + 1) * tileSize.width * resolution;
+  var minY = origin[1] + tileRange.minY * tileSize.height * resolution;
+  var maxY = origin[1] + (tileRange.maxY + 1) * tileSize.height * resolution;
+  return ol.extent.createOrUpdate(minX, maxX, minY, maxY, opt_extent);
 };
 
 
 /**
  * @param {ol.Extent} extent Extent.
  * @param {number} resolution Resolution.
+ * @param {ol.TileRange=} opt_tileRange Temporary tile range object.
  * @return {ol.TileRange} Tile range.
  */
-ol.tilegrid.TileGrid.prototype.getTileRangeForExtentAndResolution = function(
-    extent, resolution) {
-  var min = this.getTileCoordForCoordAndResolution_(
-      new ol.Coordinate(extent.minX, extent.minY), resolution);
-  var max = this.getTileCoordForCoordAndResolution_(
-      new ol.Coordinate(extent.maxX, extent.maxY), resolution, true);
-  return new ol.TileRange(min.x, min.y, max.x, max.y);
+ol.tilegrid.TileGrid.prototype.getTileRangeForExtentAndResolution =
+    function(extent, resolution, opt_tileRange) {
+  var tileCoord = ol.tilegrid.TileGrid.tmpTileCoord_;
+  this.getTileCoordForXYAndResolution_(
+      extent[0], extent[2], resolution, false, tileCoord);
+  var minX = tileCoord.x;
+  var minY = tileCoord.y;
+  this.getTileCoordForXYAndResolution_(
+      extent[1], extent[3], resolution, true, tileCoord);
+  return ol.TileRange.createOrUpdate(
+      minX, tileCoord.x, minY, tileCoord.y, opt_tileRange);
 };
 
 
 /**
  * @param {ol.Extent} extent Extent.
  * @param {number} z Z.
+ * @param {ol.TileRange=} opt_tileRange Temporary tile range object.
  * @return {ol.TileRange} Tile range.
  */
-ol.tilegrid.TileGrid.prototype.getTileRangeForExtentAndZ = function(extent, z) {
+ol.tilegrid.TileGrid.prototype.getTileRangeForExtentAndZ =
+    function(extent, z, opt_tileRange) {
   var resolution = this.getResolution(z);
-  return this.getTileRangeForExtentAndResolution(extent, resolution);
+  return this.getTileRangeForExtentAndResolution(
+      extent, resolution, opt_tileRange);
 };
 
 
@@ -217,25 +263,28 @@ ol.tilegrid.TileGrid.prototype.getTileCoordCenter = function(tileCoord) {
   var origin = this.getOrigin(tileCoord.z);
   var resolution = this.getResolution(tileCoord.z);
   var tileSize = this.getTileSize(tileCoord.z);
-  var x = origin.x + (tileCoord.x + 0.5) * tileSize.width * resolution;
-  var y = origin.y + (tileCoord.y + 0.5) * tileSize.height * resolution;
-  return new ol.Coordinate(x, y);
+  return [
+    origin[0] + (tileCoord.x + 0.5) * tileSize.width * resolution,
+    origin[1] + (tileCoord.y + 0.5) * tileSize.height * resolution
+  ];
 };
 
 
 /**
  * @param {ol.TileCoord} tileCoord Tile coordinate.
+ * @param {ol.Extent=} opt_extent Temporary extent object.
  * @return {ol.Extent} Extent.
  */
-ol.tilegrid.TileGrid.prototype.getTileCoordExtent = function(tileCoord) {
+ol.tilegrid.TileGrid.prototype.getTileCoordExtent =
+    function(tileCoord, opt_extent) {
   var origin = this.getOrigin(tileCoord.z);
   var resolution = this.getResolution(tileCoord.z);
   var tileSize = this.getTileSize(tileCoord.z);
-  var minX = origin.x + tileCoord.x * tileSize.width * resolution;
-  var minY = origin.y + tileCoord.y * tileSize.height * resolution;
+  var minX = origin[0] + tileCoord.x * tileSize.width * resolution;
   var maxX = minX + tileSize.width * resolution;
+  var minY = origin[1] + tileCoord.y * tileSize.height * resolution;
   var maxY = minY + tileSize.height * resolution;
-  return new ol.Extent(minX, minY, maxX, maxY);
+  return ol.extent.createOrUpdate(minX, maxX, minY, maxY, opt_extent);
 };
 
 
@@ -246,54 +295,60 @@ ol.tilegrid.TileGrid.prototype.getTileCoordExtent = function(tileCoord) {
  *
  * @param {ol.Coordinate} coordinate Coordinate.
  * @param {number} resolution Resolution.
+ * @param {ol.TileCoord=} opt_tileCoord Destination ol.TileCoord object.
  * @return {ol.TileCoord} Tile coordinate.
  */
 ol.tilegrid.TileGrid.prototype.getTileCoordForCoordAndResolution = function(
-    coordinate, resolution) {
-  return this.getTileCoordForCoordAndResolution_(coordinate, resolution);
+    coordinate, resolution, opt_tileCoord) {
+  return this.getTileCoordForXYAndResolution_(
+      coordinate[0], coordinate[1], resolution, false, opt_tileCoord);
 };
 
 
 /**
- * @param {ol.Coordinate} coordinate Coordinate.
+ * @param {number} x X.
+ * @param {number} y Y.
  * @param {number} resolution Resolution.
- * @param {boolean=} opt_reverseIntersectionPolicy Instead of letting edge
+ * @param {boolean} reverseIntersectionPolicy Instead of letting edge
  *     intersections go to the higher tile coordinate, let edge intersections
  *     go to the lower tile coordinate.
+ * @param {ol.TileCoord=} opt_tileCoord Temporary ol.TileCoord object.
  * @return {ol.TileCoord} Tile coordinate.
  * @private
  */
-ol.tilegrid.TileGrid.prototype.getTileCoordForCoordAndResolution_ = function(
-    coordinate, resolution, opt_reverseIntersectionPolicy) {
+ol.tilegrid.TileGrid.prototype.getTileCoordForXYAndResolution_ = function(
+    x, y, resolution, reverseIntersectionPolicy, opt_tileCoord) {
   var z = this.getZForResolution(resolution);
   var scale = resolution / this.getResolution(z);
   var origin = this.getOrigin(z);
   var tileSize = this.getTileSize(z);
 
-  var x = scale * (coordinate.x - origin.x) / (resolution * tileSize.width);
-  var y = scale * (coordinate.y - origin.y) / (resolution * tileSize.height);
+  var tileCoordX = scale * (x - origin[0]) / (resolution * tileSize.width);
+  var tileCoordY = scale * (y - origin[1]) / (resolution * tileSize.height);
 
-  if (!opt_reverseIntersectionPolicy) {
-    x = Math.floor(x);
-    y = Math.floor(y);
+  if (reverseIntersectionPolicy) {
+    tileCoordX = Math.ceil(tileCoordX) - 1;
+    tileCoordY = Math.ceil(tileCoordY) - 1;
   } else {
-    x = Math.ceil(x) - 1;
-    y = Math.ceil(y) - 1;
+    tileCoordX = Math.floor(tileCoordX);
+    tileCoordY = Math.floor(tileCoordY);
   }
 
-  return new ol.TileCoord(z, x, y);
+  return ol.TileCoord.createOrUpdate(z, tileCoordX, tileCoordY, opt_tileCoord);
 };
 
 
 /**
  * @param {ol.Coordinate} coordinate Coordinate.
  * @param {number} z Z.
+ * @param {ol.TileCoord=} opt_tileCoord Destination ol.TileCoord object.
  * @return {ol.TileCoord} Tile coordinate.
  */
 ol.tilegrid.TileGrid.prototype.getTileCoordForCoordAndZ =
-    function(coordinate, z) {
+    function(coordinate, z, opt_tileCoord) {
   var resolution = this.getResolution(z);
-  return this.getTileCoordForCoordAndResolution_(coordinate, resolution);
+  return this.getTileCoordForXYAndResolution_(
+      coordinate[0], coordinate[1], resolution, false, opt_tileCoord);
 };
 
 
@@ -302,7 +357,8 @@ ol.tilegrid.TileGrid.prototype.getTileCoordForCoordAndZ =
  * @return {number} Tile resolution.
  */
 ol.tilegrid.TileGrid.prototype.getTileCoordResolution = function(tileCoord) {
-  goog.asserts.assert(0 <= tileCoord.z && tileCoord.z < this.numResolutions_);
+  goog.asserts.assert(
+      this.minZoom <= tileCoord.z && tileCoord.z <= this.maxZoom);
   return this.resolutions_[tileCoord.z];
 };
 
@@ -316,7 +372,7 @@ ol.tilegrid.TileGrid.prototype.getTileSize = function(z) {
     return this.tileSize_;
   } else {
     goog.asserts.assert(!goog.isNull(this.tileSizes_));
-    goog.asserts.assert(0 <= z && z < this.tileSizes_.length);
+    goog.asserts.assert(this.minZoom <= z && z <= this.maxZoom);
     return this.tileSizes_[z];
   }
 };
@@ -327,7 +383,7 @@ ol.tilegrid.TileGrid.prototype.getTileSize = function(z) {
  * @return {number} Z.
  */
 ol.tilegrid.TileGrid.prototype.getZForResolution = function(resolution) {
-  return ol.array.linearFindNearest(this.resolutions_, resolution);
+  return ol.array.linearFindNearest(this.resolutions_, resolution, 0);
 };
 
 
@@ -355,8 +411,8 @@ ol.tilegrid.createForProjection =
     function(projection, opt_maxZoom, opt_tileSize) {
   var projectionExtent = projection.getExtent();
   var size = Math.max(
-      projectionExtent.maxX - projectionExtent.minX,
-      projectionExtent.maxY - projectionExtent.minY);
+      projectionExtent[1] - projectionExtent[0],
+      projectionExtent[3] - projectionExtent[2]);
   var maxZoom = goog.isDef(opt_maxZoom) ?
       opt_maxZoom : ol.DEFAULT_MAX_ZOOM;
   var tileSize = goog.isDef(opt_tileSize) ?
@@ -368,7 +424,7 @@ ol.tilegrid.createForProjection =
     resolutions[z] = size / Math.pow(2, z);
   }
   return new ol.tilegrid.TileGrid({
-    origin: projectionExtent.getBottomLeft(),
+    origin: ol.extent.getBottomLeft(projectionExtent),
     resolutions: resolutions,
     tileSize: tileSize
   });
